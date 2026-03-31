@@ -1,0 +1,7 @@
+version: v2.11.4
+name: custom-gcl
+destination: .
+plugins:
+  - module: 'github.com/skhoroshavin/gounslop'
+    import: 'github.com/skhoroshavin/gounslop/plugin'
+    path: .

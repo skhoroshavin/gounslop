@@ -1,0 +1,13 @@
+# Compiled binary
+custom-gcl
+
+# IDE
+.idea/
+
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
