@@ -1,6 +1,7 @@
 package readfriendlyorder
 
 import (
+	"fmt"
 	"go/ast"
 	"strings"
 
@@ -8,19 +9,22 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.Inspector) {
+func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.Inspector, src []byte) {
 	// Collect type declarations and their positions in the file
 	typePositions := make(map[string]int) // type name -> declaration order index
+	typeDeclIdx := make(map[string]int)   // type name -> file.Decls index
 	methods := make(map[string][]methodEntry)
 	constructors := make(map[string]*ast.FuncDecl) // type name -> New* func
+	constructorDeclIdx := make(map[string]int)     // type name -> file.Decls index of constructor
 
 	declIdx := 0
-	for _, d := range file.Decls {
+	for i, d := range file.Decls {
 		switch n := d.(type) {
 		case *ast.GenDecl:
 			for _, spec := range n.Specs {
 				if ts, ok := spec.(*ast.TypeSpec); ok {
 					typePositions[ts.Name.Name] = declIdx
+					typeDeclIdx[ts.Name.Name] = i
 				}
 			}
 		case *ast.FuncDecl:
@@ -35,10 +39,10 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 					})
 				}
 			} else if strings.HasPrefix(n.Name.Name, "New") {
-				// Check if this is a New* constructor
 				typeName := n.Name.Name[3:]
 				if typeName != "" {
 					constructors[typeName] = n
+					constructorDeclIdx[typeName] = i
 				}
 			}
 		}
@@ -61,27 +65,52 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 					ctorIdx++
 				}
 				ctorIdx++
-				// Constructor should be right after type declaration
 				if ctorIdx > typePos+1 {
-					pass.Reportf(ctor.Pos(),
-						"Place constructor %q right after type %q declaration.",
-						ctor.Name.Name, typeName)
+					diag := analysis.Diagnostic{
+						Pos: ctor.Pos(),
+						Message: fmt.Sprintf("Place constructor %q right after type %q declaration.",
+							ctor.Name.Name, typeName),
+					}
+					// Move constructor to right after type declaration
+					if ti, ok := typeDeclIdx[typeName]; ok {
+						targetDecl := file.Decls[ti]
+						_, insertOffset := declRange(pass.Fset, src, targetDecl)
+						fix := buildMoveFix(pass.Fset, file, src, ctor, insertOffset)
+						if fix != nil {
+							diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+						}
+					}
+					pass.Report(diag)
 				}
 			}
 		}
 
 		// Check method dependency order
-		reportMethodDependencyOrder(pass, meths)
+		reportMethodDependencyOrder(pass, meths, src)
 	}
 }
 
-func reportMethodDependencyOrder(pass *analysis.Pass, meths []methodEntry) {
+func reportMethodDependencyOrder(pass *analysis.Pass, meths []methodEntry, src []byte) {
 	for _, m := range meths {
 		consumer := findFirstMethodConsumer(pass, meths, m)
 		if consumer != nil {
-			pass.Reportf(m.node.Pos(),
-				"Place method %q below method %q that depends on it.",
-				m.name, consumer.name)
+			diag := analysis.Diagnostic{
+				Pos: m.node.Pos(),
+				Message: fmt.Sprintf("Place method %q below method %q that depends on it.",
+					m.name, consumer.name),
+			}
+			file := pass.Files[0] // methods are within a single file
+			for _, f := range pass.Files {
+				if f.Pos() <= m.node.Pos() && m.node.Pos() < f.End() {
+					file = f
+					break
+				}
+			}
+			fix := buildSwapFix(pass.Fset, file, src, m.node, consumer.node)
+			if fix != nil {
+				diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+			}
+			pass.Report(diag)
 		}
 	}
 }

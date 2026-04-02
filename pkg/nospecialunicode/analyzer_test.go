@@ -11,3 +11,8 @@ func TestAnalyzer(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.Run(t, testdata, nospecialunicode.Analyzer, "a")
 }
+
+func TestAnalyzerFix(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.RunWithSuggestedFixes(t, testdata, nospecialunicode.Analyzer, "a")
+}

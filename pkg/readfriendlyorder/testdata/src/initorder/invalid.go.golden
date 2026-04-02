@@ -1,0 +1,6 @@
+package initorder
+
+func init() { // want `Place init\(\) before "Setup" for visibility.`
+}
+
+func Setup() {}

@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-func reportTestOrdering(pass *analysis.Pass, file *ast.File) {
+func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 	filename := pass.Fset.File(file.Pos()).Name()
 	if !strings.HasSuffix(filename, "_test.go") {
 		return
@@ -60,10 +60,17 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File) {
 	if hasTests {
 		for _, e := range entries {
 			if e.kind == "testmain" && e.index > 0 {
-				// Check if there's any test/benchmark function before TestMain
 				for _, other := range entries {
 					if other.index < e.index && (other.kind == "test" || other.kind == "benchmark") {
-						pass.Reportf(e.node.Pos(), "Place TestMain first in test file.")
+						diag := analysis.Diagnostic{
+							Pos:     e.node.Pos(),
+							Message: "Place TestMain first in test file.",
+						}
+						fix := buildSwapFix(pass.Fset, file, src, other.node, e.node)
+						if fix != nil {
+							diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+						}
+						pass.Report(diag)
 						break
 					}
 				}

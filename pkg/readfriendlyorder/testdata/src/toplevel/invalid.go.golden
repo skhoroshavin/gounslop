@@ -1,0 +1,7 @@
+package toplevel
+
+func ExportedBad() int {
+	return helperBad()
+}
+
+func helperBad() int { return 1 } // want `Place helper "helperBad" below the top-level symbol "ExportedBad" that depends on it.`

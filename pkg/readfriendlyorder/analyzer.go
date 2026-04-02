@@ -1,6 +1,7 @@
 package readfriendlyorder
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -26,16 +27,22 @@ func run(pass *analysis.Pass) (any, error) {
 		if isGenerated(file) || strings.HasSuffix(filename, "_testmain.go") {
 			continue
 		}
-		reportInitOrdering(pass, file)
-		reportTopLevelOrdering(pass, file)
-		reportMethodOrdering(pass, file, insp)
-		reportTestOrdering(pass, file)
+
+		src, err := readFileSource(pass.Fset, file)
+		if err != nil {
+			continue
+		}
+
+		reportInitOrdering(pass, file, src)
+		reportTopLevelOrdering(pass, file, src)
+		reportMethodOrdering(pass, file, insp, src)
+		reportTestOrdering(pass, file, src)
 	}
 
 	return nil, nil
 }
 
-func reportInitOrdering(pass *analysis.Pass, file *ast.File) {
+func reportInitOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 	firstNonInitFuncIdx := -1
 	firstNonInitFuncName := ""
 	for i, d := range file.Decls {
@@ -52,47 +59,176 @@ func reportInitOrdering(pass *analysis.Pass, file *ast.File) {
 		}
 		// This is an init() function — check if any non-init func came before it
 		if firstNonInitFuncIdx != -1 && firstNonInitFuncIdx < i {
-			pass.Reportf(fn.Pos(),
-				"Place init() before %q for visibility.",
-				firstNonInitFuncName)
+			diag := analysis.Diagnostic{
+				Pos:     fn.Pos(),
+				Message: fmt.Sprintf("Place init() before %q for visibility.", firstNonInitFuncName),
+			}
+			fix := buildSwapFix(pass.Fset, file, src, file.Decls[firstNonInitFuncIdx], d)
+			if fix != nil {
+				diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+			}
+			pass.Report(diag)
 		}
 	}
 }
 
-func reportTopLevelOrdering(pass *analysis.Pass, file *ast.File) {
+func reportTopLevelOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 	decls := collectTopLevelDecls(file)
 	refs := buildRefGraph(pass, file, decls)
 	cyclicNames := findCyclicNames(decls, refs)
 
+	// Collect violations and compute the fix
+	type violation struct {
+		d        decl
+		consumer *decl
+	}
+	var violations []violation
+
 	for _, d := range decls {
-		if d.exported {
-			continue
-		}
-		if d.name == "init" {
-			continue
-		}
-		if cyclicNames[d.name] {
+		if d.exported || d.name == "init" || cyclicNames[d.name] {
 			continue
 		}
 		if hasEagerReference(decls, d, refs) {
 			continue
 		}
-
 		consumer := findFirstConsumer(decls, d, refs)
 		if consumer == nil {
 			continue
 		}
+		violations = append(violations, violation{d, consumer})
+	}
 
-		if d.kind == "const" || d.kind == "var" {
-			pass.Reportf(d.node.Pos(),
-				"Place constant %q below the top-level symbol %q that uses it.",
-				d.name, consumer.name)
+	if len(violations) == 0 {
+		return
+	}
+
+	// Compute the reorder fix for all violations at once
+	fix := computeTopLevelReorderFix(pass, file, src, decls, refs, cyclicNames)
+
+	for i, v := range violations {
+		var msg string
+		if v.d.kind == "const" || v.d.kind == "var" {
+			msg = fmt.Sprintf("Place constant %q below the top-level symbol %q that uses it.",
+				v.d.name, v.consumer.name)
 		} else {
-			pass.Reportf(d.node.Pos(),
-				"Place helper %q below the top-level symbol %q that depends on it.",
-				d.name, consumer.name)
+			msg = fmt.Sprintf("Place helper %q below the top-level symbol %q that depends on it.",
+				v.d.name, v.consumer.name)
+		}
+		diag := analysis.Diagnostic{
+			Pos:     v.d.node.Pos(),
+			Message: msg,
+		}
+		// Attach fix only to the first diagnostic to avoid conflicting edits
+		if i == 0 && fix != nil {
+			diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+		}
+		pass.Report(diag)
+	}
+}
+
+// computeTopLevelReorderFix computes the correct declaration order and builds a fix.
+func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
+	decls []decl, refs map[string]map[string]bool, cyclicNames map[string]bool) *analysis.SuggestedFix {
+
+	// Collect non-import file.Decls in order
+	var fileDecls []ast.Decl
+	for _, d := range file.Decls {
+		if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.IMPORT {
+			continue
+		}
+		fileDecls = append(fileDecls, d)
+	}
+
+	// Check for multi-spec GenDecls — skip fix if any exist among violated decls
+	for _, d := range fileDecls {
+		if gd, ok := d.(*ast.GenDecl); ok && len(gd.Specs) > 1 {
+			// Check if any of the specs in this GenDecl are in the violation set
+			for _, spec := range gd.Specs {
+				for _, dd := range decls {
+					if dd.node == spec {
+						consumer := findFirstConsumer(decls, dd, refs)
+						if consumer != nil && !dd.exported && !cyclicNames[dd.name] {
+							return nil // Can't safely reorder grouped declarations
+						}
+					}
+				}
+			}
 		}
 	}
+
+	// Build mapping from decl name to fileDecls index
+	declToFileIdx := make(map[string]int)
+	for i, fd := range fileDecls {
+		switch n := fd.(type) {
+		case *ast.FuncDecl:
+			declToFileIdx[n.Name.Name] = i
+		case *ast.GenDecl:
+			for _, spec := range n.Specs {
+				switch s := spec.(type) {
+				case *ast.ValueSpec:
+					for _, name := range s.Names {
+						declToFileIdx[name.Name] = i
+					}
+				case *ast.TypeSpec:
+					declToFileIdx[s.Name.Name] = i
+				}
+			}
+		}
+	}
+
+	// Compute correct order: exported/anchors stay in place, helpers go after consumers
+	// Build tree: consumer -> [helpers that should follow it]
+	children := make(map[int][]int) // fileDecls index -> list of fileDecls indices to insert after
+	moved := make(map[int]bool)
+
+	for _, d := range decls {
+		if d.exported || d.name == "init" || cyclicNames[d.name] {
+			continue
+		}
+		if hasEagerReference(decls, d, refs) {
+			continue
+		}
+		consumer := findFirstConsumer(decls, d, refs)
+		if consumer == nil {
+			continue
+		}
+		helperIdx := declToFileIdx[d.name]
+		consumerIdx := declToFileIdx[consumer.name]
+		if helperIdx < consumerIdx {
+			children[consumerIdx] = append(children[consumerIdx], helperIdx)
+			moved[helperIdx] = true
+		}
+	}
+
+	// Build new order via DFS
+	newOrder := make([]int, 0, len(fileDecls))
+	var visit func(idx int)
+	visit = func(idx int) {
+		newOrder = append(newOrder, idx)
+		for _, childIdx := range children[idx] {
+			visit(childIdx)
+		}
+	}
+
+	for i := range fileDecls {
+		if !moved[i] {
+			visit(i)
+		}
+	}
+
+	// Check if order actually changed
+	changed := false
+	for i, idx := range newOrder {
+		if idx != i {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return nil
+	}
+
+	return buildReorderFix(pass.Fset, file, src, fileDecls, newOrder)
 }
 
 func collectTopLevelDecls(file *ast.File) []decl {
