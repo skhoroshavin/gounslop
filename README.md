@@ -198,6 +198,19 @@ The project also dogfoods itself: `gounslop` is linted using `gounslop`.
 
 See [AGENTS.md](./AGENTS.md) for development setup and guidelines.
 
+### Test Strategy
+
+All analyzer tests use the shared plugin E2E harness (`internal/ruletest`), which runs each scenario through the real `custom-gcl` binary against temporary Go workspaces. Scenarios are defined inline in `plugin_test.go` files — no `testdata/` directories or `analysistest` fixtures.
+
+Run repository checks with:
+
+```bash
+make test
+make lint
+```
+
+`make test` builds `custom-gcl` first (if stale), then runs all tests.
+
 ## License
 
 [MIT](./LICENSE)

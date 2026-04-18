@@ -7,5 +7,5 @@ custom-gcl: $(shell find . -name '*.go' -not -path './testdata/*') .custom-gcl.y
 lint: custom-gcl
 	./custom-gcl run ./...
 
-test:
+test: custom-gcl
 	go test ./...
