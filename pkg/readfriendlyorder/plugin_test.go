@@ -7,249 +7,218 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-const readfriendlyorderModulePath = "example.com/mod"
-
 type ReadfriendlyorderE2ESuite struct {
-	suite.Suite
+	ruletest.Suite
 }
 
 func TestPluginE2E(t *testing.T) {
-	suite.Run(t, new(ReadfriendlyorderE2ESuite))
+	s := new(ReadfriendlyorderE2ESuite)
+	s.Linter = "readfriendlyorder"
+	s.ModulePath = "example.com/mod"
+	suite.Run(t, s)
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestCorrectTopLevelOrderPasses() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "correct top-level order passes",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"valid.go": "package main\n\nfunc Exported() int {\n\treturn helper() + constant\n}\n\nfunc helper() int { return 1 }\n\nconst constant = 42\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"func Exported() int {",
+		"\treturn helper() + constant",
+		"}",
+		"",
+		"func helper() int { return 1 }",
+		"",
+		"const constant = 42",
+	)
+	s.ShouldPass()
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestIncorrectTopLevelOrderFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "incorrect top-level order flagged",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"invalid.go": "package main\n\nfunc helperBad() int { return 1 }\n\nfunc ExportedBad() int {\n\treturn helperBad()\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place helper",
-				"ExportedBad",
-			},
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"func helperBad() int { return 1 }",
+		"",
+		"func ExportedBad() int {",
+		"\treturn helperBad()",
+		"}",
+	)
+	s.ShouldFailWith("Place helper", "ExportedBad")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestConstantBeforeFunctionFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "constant before function flagged",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"invalid_const.go": "package main\n\nconst maxCount = 3\n\nfunc Limit() int {\n\treturn maxCount\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place constant",
-				"Limit",
-			},
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"const maxCount = 3",
+		"",
+		"func Limit() int {",
+		"\treturn maxCount",
+		"}",
+	)
+	s.ShouldFailWith("Place constant", "Limit")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestMethodOrderingFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "method ordering flagged",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"invalid.go": "package main\n\ntype Worker struct{}\n\nfunc (w *Worker) doWork() int { return 1 }\n\nfunc (w *Worker) Process() int {\n\treturn w.doWork()\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place method",
-				"doWork",
-				"Process",
-			},
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"type Worker struct{}",
+		"",
+		"func (w *Worker) doWork() int { return 1 }",
+		"",
+		"func (w *Worker) Process() int {",
+		"\treturn w.doWork()",
+		"}",
+	)
+	s.ShouldFailWith("Place method", "doWork", "Process")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestConstructorPlacementFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "constructor placement flagged",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"constructor.go": "package main\n\ntype Handler struct{}\n\nfunc (h *Handler) Handle() int { return 1 }\n\nfunc NewHandler() *Handler { return &Handler{} }\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place constructor",
-				"NewHandler",
-				"Handler",
-			},
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"type Handler struct{}",
+		"",
+		"func (h *Handler) Handle() int { return 1 }",
+		"",
+		"func NewHandler() *Handler { return &Handler{} }",
+	)
+	s.ShouldFailWith("Place constructor", "NewHandler", "Handler")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestInitOrderingFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "init ordering flagged",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"init.go": "package main\n\nfunc Setup() {}\n\nfunc init() {}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place init()",
-				"Setup",
-			},
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"func Setup() {}",
+		"",
+		"func init() {}",
+	)
+	s.ShouldFailWith("Place init()", "Setup")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestCyclicDependenciesExempt() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "cyclic dependencies exempt",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"cyclic.go": "package main\n\nfunc parseExpression() int {\n\treturn parseAtom()\n}\n\nfunc parseAtom() int {\n\treturn parseExpression()\n}\n\nfunc Parse() int {\n\treturn parseExpression()\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"func parseExpression() int {",
+		"\treturn parseAtom()",
+		"}",
+		"",
+		"func parseAtom() int {",
+		"\treturn parseExpression()",
+		"}",
+		"",
+		"func Parse() int {",
+		"\treturn parseExpression()",
+		"}",
+	)
+	s.ShouldPass()
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestValidMethodOrderPasses() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "valid method order passes",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"methods.go": "package main\n\ntype Service struct{}\n\nfunc NewService() *Service { return &Service{} }\n\nfunc (s *Service) Run() int {\n\treturn s.compute()\n}\n\nfunc (s *Service) compute() int {\n\treturn 1\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"type Service struct{}",
+		"",
+		"func NewService() *Service { return &Service{} }",
+		"",
+		"func (s *Service) Run() int {",
+		"\treturn s.compute()",
+		"}",
+		"",
+		"func (s *Service) compute() int {",
+		"\treturn 1",
+		"}",
+	)
+	s.ShouldPass()
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestEagerEvaluationExempt() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "eager evaluation: constant referenced by another constant is exempt",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"eager.go": "package main\n\nconst pi = 3.14\n\nconst twicePi = pi * 2\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
-	})
+	s.LintCode(
+		"package main",
+		"",
+		"const pi = 3.14",
+		"",
+		"const twicePi = pi * 2",
+	)
+	s.ShouldPass()
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestTestMainOrderingFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "TestMain ordering flagged in test file",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestSomething(t *testing.T) {}\n\nfunc TestMain(m *testing.M) {}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"Place TestMain",
-			},
-		},
-	})
+	s.GivenFile("main_test.go",
+		"package main",
+		"",
+		"import \"testing\"",
+		"",
+		"func TestSomething(t *testing.T) {}",
+		"",
+		"func TestMain(m *testing.M) {}",
+	)
+	s.LintFile("main_test.go")
+	s.ShouldFailWith("Place TestMain")
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestHelperBeforeExportedFix() {
-	s.runFixScenario(ruletest.Scenario{
-		Name:       "helper before exported is reordered by fix",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"fix.go": "package main\n\nfunc helper() int { return 1 }\n\nfunc Exported() int {\n\treturn helper()\n}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-			FixedFiles: map[string]string{
-				"fix.go": "package main\n\nfunc Exported() int {\n\treturn helper()\n}\n\nfunc helper() int { return 1 }\n",
-			},
-		},
-	})
+	s.FixCode(
+		"package main",
+		"",
+		"func helper() int { return 1 }",
+		"",
+		"func Exported() int {",
+		"\treturn helper()",
+		"}",
+	)
+	s.ShouldPass()
+	s.ShouldProduce(
+		"package main",
+		"",
+		"func Exported() int {",
+		"\treturn helper()",
+		"}",
+		"",
+		"func helper() int { return 1 }",
+	)
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestInitOrderingFix() {
-	s.runFixScenario(ruletest.Scenario{
-		Name:       "init ordering fix swaps init before exported func",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"init.go": "package main\n\nfunc Setup() {}\n\nfunc init() {}\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-			FixedFiles: map[string]string{
-				"init.go": "package main\n\nfunc init() {}\n\nfunc Setup() {}\n",
-			},
-		},
-	})
+	s.FixCode(
+		"package main",
+		"",
+		"func Setup() {}",
+		"",
+		"func init() {}",
+	)
+	s.ShouldPass()
+	s.ShouldProduce(
+		"package main",
+		"",
+		"func init() {}",
+		"",
+		"func Setup() {}",
+	)
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestConstructorPlacementFix() {
-	s.runFixScenario(ruletest.Scenario{
-		Name:       "constructor placement fix moves constructor after type",
-		ModulePath: readfriendlyorderModulePath,
-		Linter:     "readfriendlyorder",
-		Files: map[string]string{
-			"constructor.go": "package main\n\ntype Handler struct{}\n\nfunc (h *Handler) Handle() int { return 1 }\n\nfunc NewHandler() *Handler { return &Handler{} }\n",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-			FixedFiles: map[string]string{
-				"constructor.go": "package main\n\ntype Handler struct{}\n\nfunc NewHandler() *Handler { return &Handler{} }\n\nfunc (h *Handler) Handle() int { return 1 }\n",
-			},
-		},
-	})
-}
-
-func (s *ReadfriendlyorderE2ESuite) runScenario(scenario ruletest.Scenario) {
-	s.T().Helper()
-
-	result := ruletest.Execute(s.T(), scenario)
-	ruletest.AssertResult(s.T(), scenario.Expect, result)
-}
-
-func (s *ReadfriendlyorderE2ESuite) runFixScenario(scenario ruletest.Scenario) {
-	s.T().Helper()
-
-	result := ruletest.ExecuteFix(s.T(), scenario)
-	ruletest.AssertResult(s.T(), scenario.Expect, result)
+	s.FixCode(
+		"package main",
+		"",
+		"type Handler struct{}",
+		"",
+		"func (h *Handler) Handle() int { return 1 }",
+		"",
+		"func NewHandler() *Handler { return &Handler{} }",
+	)
+	s.ShouldPass()
+	s.ShouldProduce(
+		"package main",
+		"",
+		"type Handler struct{}",
+		"",
+		"func NewHandler() *Handler { return &Handler{} }",
+		"",
+		"func (h *Handler) Handle() int { return 1 }",
+	)
 }

@@ -7,98 +7,90 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-const nodeepimportsModulePath = "example.com/mod"
-
 type NodeepimportsE2ESuite struct {
-	suite.Suite
+	ruletest.Suite
 }
 
 func TestPluginE2E(t *testing.T) {
-	suite.Run(t, new(NodeepimportsE2ESuite))
+	s := new(NodeepimportsE2ESuite)
+	s.Linter = "nodeepimports"
+	s.ModulePath = "example.com/mod"
+	suite.Run(t, s)
 }
 
 func (s *NodeepimportsE2ESuite) TestOneLevelDeepImportPasses() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "one-level deep import passes",
-		ModulePath: nodeepimportsModulePath,
-		Linter:     "nodeepimports",
-		Files: map[string]string{
-			"feature/consumer.go":    "package feature\n\nimport _ \"example.com/mod/feature/child\"\n",
-			"feature/child/child.go": "package child\n\nvar X = 1\n",
-		},
-		Settings: map[string]any{
-			"module-root": "example.com/mod",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
+	s.GivenConfig(map[string]any{
+		"module-root": "example.com/mod",
 	})
+	s.GivenFile("feature/consumer.go",
+		"package feature",
+		"",
+		"import _ \"example.com/mod/feature/child\"",
+	)
+	s.GivenFile("feature/child/child.go",
+		"package child",
+		"",
+		"var X = 1",
+	)
+	s.LintFile("feature/consumer.go")
+	s.ShouldPass()
 }
 
 func (s *NodeepimportsE2ESuite) TestDeepImportFlagged() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "deep import flagged",
-		ModulePath: nodeepimportsModulePath,
-		Linter:     "nodeepimports",
-		Files: map[string]string{
-			"feature/consumer.go":        "package feature\n\nimport _ \"example.com/mod/feature/child/deep\"\n",
-			"feature/child/child.go":     "package child\n\nvar X = 1\n",
-			"feature/child/deep/deep.go": "package deep\n\nvar Y = 2\n",
-		},
-		Settings: map[string]any{
-			"module-root": "example.com/mod",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode: 1,
-			OutputContains: []string{
-				"too deep",
-			},
-		},
+	s.GivenConfig(map[string]any{
+		"module-root": "example.com/mod",
 	})
+	s.GivenFile("feature/consumer.go",
+		"package feature",
+		"",
+		"import _ \"example.com/mod/feature/child/deep\"",
+	)
+	s.GivenFile("feature/child/child.go",
+		"package child",
+		"",
+		"var X = 1",
+	)
+	s.GivenFile("feature/child/deep/deep.go",
+		"package deep",
+		"",
+		"var Y = 2",
+	)
+	s.LintFile("feature/consumer.go")
+	s.ShouldFailWith("too deep")
 }
 
 func (s *NodeepimportsE2ESuite) TestDifferentTopLevelScopePasses() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "different top-level scope passes",
-		ModulePath: nodeepimportsModulePath,
-		Linter:     "nodeepimports",
-		Files: map[string]string{
-			"featurea/consumer.go":        "package featurea\n\nimport _ \"example.com/mod/featureb/other/deep\"\n",
-			"featureb/other/deep/deep.go": "package deep\n\nvar Z = 3\n",
-		},
-		Settings: map[string]any{
-			"module-root": "example.com/mod",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
+	s.GivenConfig(map[string]any{
+		"module-root": "example.com/mod",
 	})
+	s.GivenFile("featurea/consumer.go",
+		"package featurea",
+		"",
+		"import _ \"example.com/mod/featureb/other/deep\"",
+	)
+	s.GivenFile("featureb/other/deep/deep.go",
+		"package deep",
+		"",
+		"var Z = 3",
+	)
+	s.LintFile("featurea/consumer.go")
+	s.ShouldPass()
 }
 
 func (s *NodeepimportsE2ESuite) TestFileImportFromChildScopePasses() {
-	s.runScenario(ruletest.Scenario{
-		Name:       "test file import from child scope passes",
-		ModulePath: nodeepimportsModulePath,
-		Linter:     "nodeepimports",
-		Files: map[string]string{
-			"feature/child/child.go":     "package child\n\nimport _ \"example.com/mod/feature/child/deep\"\n",
-			"feature/child/deep/deep.go": "package deep\n\nvar Y = 2\n",
-		},
-		Settings: map[string]any{
-			"module-root": "example.com/mod",
-		},
-		Expect: ruletest.Expectation{
-			ExitCode:    0,
-			EmptyOutput: true,
-		},
+	s.GivenConfig(map[string]any{
+		"module-root": "example.com/mod",
 	})
-}
-
-func (s *NodeepimportsE2ESuite) runScenario(scenario ruletest.Scenario) {
-	s.T().Helper()
-
-	result := ruletest.Execute(s.T(), scenario)
-	ruletest.AssertResult(s.T(), scenario.Expect, result)
+	s.GivenFile("feature/child/child.go",
+		"package child",
+		"",
+		"import _ \"example.com/mod/feature/child/deep\"",
+	)
+	s.GivenFile("feature/child/deep/deep.go",
+		"package deep",
+		"",
+		"var Y = 2",
+	)
+	s.LintFile("feature/child/child.go")
+	s.ShouldPass()
 }

@@ -7,23 +7,50 @@ The repository SHALL provide a reusable E2E test harness that can materialize a 
 - **WHEN** a test defines a temporary module with multiple Go packages and enables a `gounslop` plugin through generated linter configuration
 - **THEN** the harness runs `custom-gcl` against that temporary workspace and returns the resulting diagnostics to the test
 
-### Requirement: Plugin E2E scenarios are defined inline
-The repository SHALL allow E2E scenarios to define their file set, module contents, plugin settings, and expected outcome inline in Go tests without requiring fixture-directory inputs.
+### Requirement: Plugin E2E harness integrates with testify suites
+The repository SHALL provide a `ruletest.Suite` base suite that embeds `testify/suite.Suite` and exposes `GivenConfig`, `GivenFile`, `LintFile`, `LintCode`, `FixFile`, `FixCode`, `ShouldPass`, `ShouldFailWith`, and `ShouldProduce` as suite methods.
 
-#### Scenario: Scenario stays compact in test code
-- **WHEN** a contributor adds a new E2E case for an analyzer
-- **THEN** the contributor can express the scenario as a compact inline Go definition without creating a dedicated fixture directory
+#### Scenario: Analyzer suite embeds ruletest suite
+- **WHEN** an analyzer test suite embeds `ruletest.Suite` and configures its linter name
+- **THEN** its test methods can define files, execute one lint or fix operation, and assert the result without private `runScenario` or `runFixScenario` helpers
+
+#### Scenario: Per-test state resets automatically
+- **WHEN** testify invokes `SetupTest` before a suite test method
+- **THEN** any files, config, temporary workspace state, and previous execution result from a prior test are cleared
+
+### Requirement: Plugin E2E scenarios are defined inline
+The repository SHALL allow E2E scenarios to define their file set, plugin settings, execution target, and expected outcome inline through `ruletest.Suite` methods without requiring fixture-directory inputs or raw `Scenario` structs.
+
+#### Scenario: Single-file lint case stays compact
+- **WHEN** a contributor defines inline code with `LintCode`
+- **THEN** the contributor can express the file content as variadic lines and assert pass or fail in the same test method without constructing a file map or expectation struct
+
+#### Scenario: Multi-file project is built inline
+- **WHEN** a contributor uses multiple `GivenFile` calls and then executes one `LintFile` call
+- **THEN** the harness materializes the full temporary project structure and lints only the requested target file
+
+#### Scenario: Inline fix case stays compact
+- **WHEN** a contributor defines inline code with `FixCode` or builds a project with `GivenFile` before `FixFile`
+- **THEN** the contributor can assert the fixed output with `ShouldProduce` without constructing expected fixed-file maps
 
 ### Requirement: Plugin E2E results are actionable
-The harness SHALL expose whether a scenario completed without error or failed with a human-readable, directly actionable message. It SHALL normalize temporary-path details so tests can assert on stable diagnostics and failure fragments.
+The harness SHALL store the most recent lint or fix result on `ruletest.Suite` and expose assertion helpers that report stable, human-readable failures. It SHALL normalize temporary-path details so tests can assert on stable diagnostics, failure fragments, and fixed output.
 
-#### Scenario: Successful run produces stable diagnostics
-- **WHEN** a scenario triggers a plugin diagnostic in a temporary workspace
-- **THEN** the test can assert on normalized diagnostic output without depending on machine-specific temporary paths
+#### Scenario: Passing run is asserted from the suite
+- **WHEN** a test method executes `LintFile` or `LintCode` and then calls `ShouldPass`
+- **THEN** the suite asserts a successful exit with no diagnostics and reports normalized output if the assertion fails
 
-#### Scenario: Failing run produces actionable error output
-- **WHEN** a scenario provides invalid plugin configuration or otherwise causes `custom-gcl` to fail
-- **THEN** the harness returns an error result whose message is readable enough for a human or LLM to act on directly
+#### Scenario: Failing run is asserted from the suite
+- **WHEN** a test method executes `LintFile` or `LintCode` and then calls `ShouldFailWith` with expected fragments
+- **THEN** the suite asserts a non-zero exit and that each fragment appears in normalized output
+
+#### Scenario: Fixed output is asserted from the suite
+- **WHEN** a test method executes `FixFile` or `FixCode` and then calls `ShouldProduce`
+- **THEN** the suite asserts that the fixed content of the executed file matches the provided variadic lines
+
+#### Scenario: Assertion before execution fails clearly
+- **WHEN** a test method calls `ShouldPass`, `ShouldFailWith`, or `ShouldProduce` before executing `LintFile`, `LintCode`, `FixFile`, or `FixCode`
+- **THEN** the harness fails the test with a clear message that no result is available yet
 
 ### Requirement: Repository coverage includes representative plugin E2E cases
 The repository SHALL include representative plugin-level E2E coverage for all existing analyzers, including failing cases, passing cases, and configuration-error cases as appropriate per analyzer. E2E tests SHALL be the default and only test approach — no `analysistest`-based tests or `testdata/` fixture directories SHALL remain in analyzer packages.

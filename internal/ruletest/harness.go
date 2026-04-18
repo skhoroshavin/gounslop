@@ -12,29 +12,25 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 )
 
-// Scenario defines a temporary workspace, generated linter config, and expected outcome.
-type Scenario struct {
-	Name       string
+type Suite struct {
+	suite.Suite
+
+	Linter     string
 	ModulePath string
 	GoVersion  string
-	Linter     string
-	Files      map[string]string
-	Settings   map[string]any
-	Expect     Expectation
+
+	files          map[string]string
+	settings       map[string]any
+	workspace      string
+	lastResult     *Result
+	lastTargetPath string
+	codeCounter    int
 }
 
-// Expectation defines the stable fragments that must appear in normalized output.
-type Expectation struct {
-	ExitCode       int
-	OutputContains []string
-	EmptyOutput    bool
-	FixedFiles     map[string]string
-}
-
-// Result contains the normalized command result for a single scenario run.
 type Result struct {
 	ExitCode   int
 	Stdout     string
@@ -44,79 +40,178 @@ type Result struct {
 	FixedFiles map[string]string
 }
 
-// Run materializes the scenario into a temp workspace, executes custom-gcl, and checks expectations.
-func Run(t *testing.T, scenario Scenario) Result {
-	t.Helper()
-
-	result := Execute(t, scenario)
-	AssertResult(t, scenario.Expect, result)
-
-	return result
+func (s *Suite) SetupTest() {
+	s.files = make(map[string]string)
+	s.settings = nil
+	s.workspace = ""
+	s.lastResult = nil
+	s.lastTargetPath = ""
+	s.codeCounter = 0
 }
 
-// Execute materializes the scenario into a temp workspace, runs custom-gcl, and returns the normalized result.
-func Execute(t *testing.T, scenario Scenario) Result {
-	t.Helper()
+func (s *Suite) GivenConfig(settings map[string]any) {
+	s.T().Helper()
 
-	workspace := newWorkspace(t)
-	writeWorkspace(t, workspace, scenario)
+	if settings == nil {
+		s.settings = nil
+		return
+	}
 
-	return runCustomGCL(t, workspace, scenario.Linter)
+	s.settings = make(map[string]any, len(settings))
+	for key, value := range settings {
+		s.settings[key] = value
+	}
 }
 
-// ExecuteFix materializes the scenario into a temp workspace, runs custom-gcl --fix,
-// and returns the result with fixed file contents.
-func ExecuteFix(t *testing.T, scenario Scenario) Result {
-	t.Helper()
+func (s *Suite) LintCode(lines ...string) {
+	s.T().Helper()
 
-	workspace := newWorkspace(t)
-	writeWorkspace(t, workspace, scenario)
-
-	result := runCustomGCLFix(t, workspace, scenario.Linter)
-	result.FixedFiles = readFixedFiles(t, workspace, scenario)
-
-	return result
+	path := s.nextCodePath()
+	s.GivenFile(path, lines...)
+	s.LintFile(path)
 }
 
-// AssertResult validates a normalized E2E command result against the expected outcome.
-func AssertResult(t *testing.T, expect Expectation, result Result) {
-	t.Helper()
+func (s *Suite) FixCode(lines ...string) {
+	s.T().Helper()
 
-	if result.ExitCode != expect.ExitCode {
-		t.Fatalf(
-			"unexpected exit code: got %d, want %d\nerror:\n%s\nstdout:\n%s\nstderr:\n%s",
+	path := s.nextCodePath()
+	s.GivenFile(path, lines...)
+	s.FixFile(path)
+}
+
+func (s *Suite) GivenFile(path string, lines ...string) {
+	s.T().Helper()
+
+	if path == "" {
+		s.T().Fatal("file path is required")
+	}
+
+	if s.files == nil {
+		s.files = make(map[string]string)
+	}
+
+	s.files[path] = joinLines(lines...)
+}
+
+func (s *Suite) LintFile(path string) {
+	s.T().Helper()
+
+	s.run(path, false)
+}
+
+func (s *Suite) FixFile(path string) {
+	s.T().Helper()
+
+	s.run(path, true)
+}
+
+func (s *Suite) ShouldPass() {
+	s.T().Helper()
+
+	result := s.requireResult()
+	if result.ExitCode != 0 {
+		s.T().Fatalf(
+			"expected passing run, got exit code %d\nerror:\n%s\nstdout:\n%s\nstderr:\n%s",
 			result.ExitCode,
-			expect.ExitCode,
 			result.Error,
 			result.Stdout,
 			result.Stderr,
 		)
 	}
 
-	if expect.EmptyOutput && !isEmptyOutput(result.Output) {
-		t.Fatalf("expected no output, got:\n%s", result.Output)
+	if !isEmptyOutput(result.Output) {
+		s.T().Fatalf("expected no output, got:\n%s", result.Output)
+	}
+}
+
+func (s *Suite) ShouldFailWith(fragments ...string) {
+	s.T().Helper()
+
+	result := s.requireResult()
+	if result.ExitCode == 0 {
+		s.T().Fatalf("expected failing run, got exit code 0\noutput:\n%s", result.Output)
 	}
 
-	for _, fragment := range expect.OutputContains {
+	for _, fragment := range fragments {
 		if strings.Contains(result.Output, fragment) {
 			continue
 		}
 
-		t.Fatalf("missing output fragment %q\nfull output:\n%s", fragment, result.Output)
-	}
-
-	for path, expected := range expect.FixedFiles {
-		actual, ok := result.FixedFiles[path]
-		if !ok {
-			t.Fatalf("expected fixed file %q but it was not written", path)
-		}
-		if actual != expected {
-			t.Fatalf("fixed file %q mismatch:\nexpected:\n%s\nactual:\n%s", path, expected, actual)
-		}
+		s.T().Fatalf("missing output fragment %q\nfull output:\n%s", fragment, result.Output)
 	}
 }
 
-func newWorkspace(t *testing.T) string {
+func (s *Suite) ShouldProduce(lines ...string) {
+	s.T().Helper()
+
+	result := s.requireResult()
+	if len(result.FixedFiles) == 0 {
+		s.T().Fatal("no fixed output available yet; call FixFile or FixCode first")
+	}
+
+	if s.lastTargetPath == "" {
+		s.T().Fatal("no target file available for fixed output assertion")
+	}
+
+	actual, ok := result.FixedFiles[s.lastTargetPath]
+	if !ok {
+		s.T().Fatalf("expected fixed file %q but it was not written", s.lastTargetPath)
+	}
+
+	expected := joinLines(lines...)
+	if actual != expected {
+		s.T().Fatalf("fixed file %q mismatch:\nexpected:\n%s\nactual:\n%s", s.lastTargetPath, expected, actual)
+	}
+}
+
+func (s *Suite) run(path string, fix bool) {
+	s.T().Helper()
+
+	workspace := newWorkspace(s.T())
+	scenario := scenarioInput{
+		ModulePath: s.ModulePath,
+		GoVersion:  s.GoVersion,
+		Linter:     s.Linter,
+		Files:      copyStringMap(s.files),
+		Settings:   copyAnyMap(s.settings),
+	}
+
+	writeWorkspace(s.T(), workspace, scenario)
+
+	if !pathExistsIn(path, scenario.Files) {
+		s.T().Fatalf("target file %q is not defined in this test", path)
+	}
+
+	var result Result
+	if fix {
+		result = runCustomGCLFix(s.T(), workspace, s.Linter)
+		result.FixedFiles = readFixedFiles(s.T(), workspace, scenario.Files)
+	} else {
+		result = runCustomGCL(s.T(), workspace, s.Linter)
+	}
+
+	s.workspace = workspace
+	s.lastTargetPath = path
+	s.lastResult = &result
+}
+
+func (s *Suite) nextCodePath() string {
+	path := fmt.Sprintf("lint%d.go", s.codeCounter)
+	s.codeCounter++
+	return path
+}
+
+func (s *Suite) requireResult() Result {
+	s.T().Helper()
+
+	if s.lastResult == nil {
+		s.T().Fatal("no result available yet; call LintFile, LintCode, FixFile, or FixCode first")
+	}
+
+	return *s.lastResult
+}
+
+func newWorkspace(t testing.TB) string {
 	t.Helper()
 
 	workspace, err := os.MkdirTemp("", "gounslop-plugin-e2e-*")
@@ -133,7 +228,7 @@ func newWorkspace(t *testing.T) string {
 	return workspace
 }
 
-func runCustomGCL(t *testing.T, workspace string, _ string) Result {
+func runCustomGCL(t testing.TB, workspace string, _ string) Result {
 	t.Helper()
 
 	release := acquireCustomGCLLock(t)
@@ -148,37 +243,10 @@ func runCustomGCL(t *testing.T, workspace string, _ string) Result {
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-
-	result := Result{
-		ExitCode: exitCode(err),
-		Stdout:   normalizeOutput(stdout.String(), workspace),
-		Stderr:   normalizeOutput(stderr.String(), workspace),
-	}
-	if err != nil {
-		result.Error = err.Error()
-	}
-	result.Output = strings.TrimSpace(strings.Join(nonEmpty(result.Stdout, result.Stderr), "\n"))
-
-	if err == nil {
-		return result
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return result
-	}
-
-	t.Fatalf("running custom-gcl: %v", err)
-	return Result{}
+	return runCommand(t, cmd, workspace, "running custom-gcl")
 }
 
-func runCustomGCLFix(t *testing.T, workspace string, _ string) Result {
+func runCustomGCLFix(t testing.TB, workspace string, _ string) Result {
 	t.Helper()
 
 	release := acquireCustomGCLLock(t)
@@ -193,6 +261,12 @@ func runCustomGCLFix(t *testing.T, workspace string, _ string) Result {
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
+	return runCommand(t, cmd, workspace, "running custom-gcl --fix")
+}
+
+func runCommand(t testing.TB, cmd *exec.Cmd, workspace string, fatalPrefix string) Result {
+	t.Helper()
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -219,15 +293,15 @@ func runCustomGCLFix(t *testing.T, workspace string, _ string) Result {
 		return result
 	}
 
-	t.Fatalf("running custom-gcl --fix: %v", err)
+	t.Fatalf("%s: %v", fatalPrefix, err)
 	return Result{}
 }
 
-func readFixedFiles(t *testing.T, workspace string, scenario Scenario) map[string]string {
+func readFixedFiles(t testing.TB, workspace string, files map[string]string) map[string]string {
 	t.Helper()
 
 	fixed := make(map[string]string)
-	for path := range scenario.Files {
+	for path := range files {
 		if path == "go.mod" || path == ".golangci.yml" {
 			continue
 		}
@@ -243,7 +317,7 @@ func readFixedFiles(t *testing.T, workspace string, scenario Scenario) map[strin
 	return fixed
 }
 
-func acquireCustomGCLLock(t *testing.T) func() {
+func acquireCustomGCLLock(t testing.TB) func() {
 	t.Helper()
 
 	lockPath := filepath.Join(os.TempDir(), "gounslop-custom-gcl.lock")
@@ -267,21 +341,18 @@ func acquireCustomGCLLock(t *testing.T) func() {
 	}
 }
 
-func writeWorkspace(t *testing.T, workspace string, scenario Scenario) {
+func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 	t.Helper()
 
 	if scenario.Linter == "" {
-		t.Fatal("scenario linter is required")
+		t.Fatal("suite linter is required")
 	}
 
 	if len(scenario.Files) == 0 {
-		t.Fatal("scenario files are required")
+		t.Fatal("at least one file is required")
 	}
 
-	files := make(map[string]string, len(scenario.Files))
-	for k, v := range scenario.Files {
-		files[k] = v
-	}
+	files := copyStringMap(scenario.Files)
 	if _, ok := files["go.mod"]; !ok {
 		files["go.mod"] = renderGoMod(scenario)
 	}
@@ -300,7 +371,7 @@ func writeWorkspace(t *testing.T, workspace string, scenario Scenario) {
 	}
 }
 
-func renderConfig(scenario Scenario) string {
+func renderConfig(scenario scenarioInput) string {
 	type customLinter struct {
 		Type     string         `yaml:"type"`
 		Settings map[string]any `yaml:"settings,omitempty"`
@@ -342,7 +413,7 @@ func renderConfig(scenario Scenario) string {
 	return string(out)
 }
 
-func renderGoMod(scenario Scenario) string {
+func renderGoMod(scenario scenarioInput) string {
 	modulePath := scenario.ModulePath
 	if modulePath == "" {
 		modulePath = "example.com/plugin-e2e"
@@ -354,6 +425,14 @@ func renderGoMod(scenario Scenario) string {
 	}
 
 	return fmt.Sprintf("module %s\n\ngo %s\n", modulePath, goVersion)
+}
+
+type scenarioInput struct {
+	ModulePath string
+	GoVersion  string
+	Linter     string
+	Files      map[string]string
+	Settings   map[string]any
 }
 
 func normalizeOutput(output string, workspace string) string {
@@ -399,4 +478,41 @@ func nonEmpty(values ...string) []string {
 func isEmptyOutput(output string) bool {
 	trimmed := strings.TrimSpace(output)
 	return trimmed == "" || trimmed == "0 issues."
+}
+
+func joinLines(lines ...string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func copyAnyMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func pathExistsIn(path string, files map[string]string) bool {
+	_, ok := files[path]
+	return ok
 }
