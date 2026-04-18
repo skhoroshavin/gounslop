@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
+	"syscall"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Scenario defines a temporary workspace, generated linter config, and expected outcome.
@@ -29,15 +31,17 @@ type Expectation struct {
 	ExitCode       int
 	OutputContains []string
 	EmptyOutput    bool
+	FixedFiles     map[string]string
 }
 
 // Result contains the normalized command result for a single scenario run.
 type Result struct {
-	ExitCode int
-	Stdout   string
-	Stderr   string
-	Output   string
-	Error    string
+	ExitCode   int
+	Stdout     string
+	Stderr     string
+	Output     string
+	Error      string
+	FixedFiles map[string]string
 }
 
 // Run materializes the scenario into a temp workspace, executes custom-gcl, and checks expectations.
@@ -57,7 +61,21 @@ func Execute(t *testing.T, scenario Scenario) Result {
 	workspace := newWorkspace(t)
 	writeWorkspace(t, workspace, scenario)
 
-	return runCustomGCL(t, workspace)
+	return runCustomGCL(t, workspace, scenario.Linter)
+}
+
+// ExecuteFix materializes the scenario into a temp workspace, runs custom-gcl --fix,
+// and returns the result with fixed file contents.
+func ExecuteFix(t *testing.T, scenario Scenario) Result {
+	t.Helper()
+
+	workspace := newWorkspace(t)
+	writeWorkspace(t, workspace, scenario)
+
+	result := runCustomGCLFix(t, workspace, scenario.Linter)
+	result.FixedFiles = readFixedFiles(t, workspace, scenario)
+
+	return result
 }
 
 // AssertResult validates a normalized E2E command result against the expected outcome.
@@ -86,6 +104,16 @@ func AssertResult(t *testing.T, expect Expectation, result Result) {
 
 		t.Fatalf("missing output fragment %q\nfull output:\n%s", fragment, result.Output)
 	}
+
+	for path, expected := range expect.FixedFiles {
+		actual, ok := result.FixedFiles[path]
+		if !ok {
+			t.Fatalf("expected fixed file %q but it was not written", path)
+		}
+		if actual != expected {
+			t.Fatalf("fixed file %q mismatch:\nexpected:\n%s\nactual:\n%s", path, expected, actual)
+		}
+	}
 }
 
 func newWorkspace(t *testing.T) string {
@@ -105,15 +133,18 @@ func newWorkspace(t *testing.T) string {
 	return workspace
 }
 
-func runCustomGCL(t *testing.T, workspace string) Result {
+func runCustomGCL(t *testing.T, workspace string, _ string) Result {
 	t.Helper()
+
+	release := acquireCustomGCLLock(t)
+	defer release()
 
 	binaryPath := filepath.Join(repoRoot(), "custom-gcl")
 	if _, err := os.Stat(binaryPath); err != nil {
 		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
 	}
 
-	cmd := exec.Command(binaryPath, "run", "./...")
+	cmd := exec.Command(binaryPath, "run", "--default=none", "./...")
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
@@ -147,6 +178,95 @@ func runCustomGCL(t *testing.T, workspace string) Result {
 	return Result{}
 }
 
+func runCustomGCLFix(t *testing.T, workspace string, _ string) Result {
+	t.Helper()
+
+	release := acquireCustomGCLLock(t)
+	defer release()
+
+	binaryPath := filepath.Join(repoRoot(), "custom-gcl")
+	if _, err := os.Stat(binaryPath); err != nil {
+		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
+	}
+
+	cmd := exec.Command(binaryPath, "run", "--default=none", "--fix", "./...")
+	cmd.Dir = workspace
+	cmd.Env = append(os.Environ(), "NO_COLOR=1")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	result := Result{
+		ExitCode: exitCode(err),
+		Stdout:   normalizeOutput(stdout.String(), workspace),
+		Stderr:   normalizeOutput(stderr.String(), workspace),
+	}
+	if err != nil {
+		result.Error = err.Error()
+	}
+	result.Output = strings.TrimSpace(strings.Join(nonEmpty(result.Stdout, result.Stderr), "\n"))
+
+	if err == nil {
+		return result
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return result
+	}
+
+	t.Fatalf("running custom-gcl --fix: %v", err)
+	return Result{}
+}
+
+func readFixedFiles(t *testing.T, workspace string, scenario Scenario) map[string]string {
+	t.Helper()
+
+	fixed := make(map[string]string)
+	for path := range scenario.Files {
+		if path == "go.mod" || path == ".golangci.yml" {
+			continue
+		}
+
+		fullPath := filepath.Join(workspace, path)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			t.Fatalf("reading fixed file %s: %v", path, err)
+		}
+		fixed[path] = string(data)
+	}
+
+	return fixed
+}
+
+func acquireCustomGCLLock(t *testing.T) func() {
+	t.Helper()
+
+	lockPath := filepath.Join(os.TempDir(), "gounslop-custom-gcl.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("opening custom-gcl lock %s: %v", lockPath, err)
+	}
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		t.Fatalf("locking custom-gcl lock %s: %v", lockPath, err)
+	}
+
+	return func() {
+		if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+			t.Errorf("unlocking custom-gcl lock %s: %v", lockPath, err)
+		}
+		if err := lockFile.Close(); err != nil {
+			t.Errorf("closing custom-gcl lock %s: %v", lockPath, err)
+		}
+	}
+}
+
 func writeWorkspace(t *testing.T, workspace string, scenario Scenario) {
 	t.Helper()
 
@@ -158,7 +278,10 @@ func writeWorkspace(t *testing.T, workspace string, scenario Scenario) {
 		t.Fatal("scenario files are required")
 	}
 
-	files := mapsClone(scenario.Files)
+	files := make(map[string]string, len(scenario.Files))
+	for k, v := range scenario.Files {
+		files[k] = v
+	}
 	if _, ok := files["go.mod"]; !ok {
 		files["go.mod"] = renderGoMod(scenario)
 	}
@@ -178,25 +301,45 @@ func writeWorkspace(t *testing.T, workspace string, scenario Scenario) {
 }
 
 func renderConfig(scenario Scenario) string {
-	var builder strings.Builder
-
-	builder.WriteString("version: \"2\"\n\n")
-	builder.WriteString("linters:\n")
-	builder.WriteString("  enable:\n")
-	_, _ = fmt.Fprintf(&builder, "    - %s\n", scenario.Linter)
-	builder.WriteString("  settings:\n")
-	builder.WriteString("    custom:\n")
-	_, _ = fmt.Fprintf(&builder, "      %s:\n", scenario.Linter)
-	builder.WriteString("        type: \"module\"\n")
-
-	if len(scenario.Settings) == 0 {
-		return builder.String()
+	type customLinter struct {
+		Type     string         `yaml:"type"`
+		Settings map[string]any `yaml:"settings,omitempty"`
 	}
 
-	builder.WriteString("        settings:\n")
-	writeYAMLMap(&builder, 10, scenario.Settings)
+	type lintersSettings struct {
+		Custom map[string]customLinter `yaml:"custom"`
+	}
 
-	return builder.String()
+	type linters struct {
+		Enable   []string        `yaml:"enable"`
+		Settings lintersSettings `yaml:"settings"`
+	}
+
+	type config struct {
+		Version string  `yaml:"version"`
+		Linters linters `yaml:"linters"`
+	}
+
+	cfg := config{
+		Version: "2",
+		Linters: linters{
+			Enable: []string{scenario.Linter},
+			Settings: lintersSettings{
+				Custom: map[string]customLinter{
+					scenario.Linter: {
+						Type:     "module",
+						Settings: scenario.Settings,
+					},
+				},
+			},
+		},
+	}
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		panic(fmt.Sprintf("rendering config: %v", err))
+	}
+	return string(out)
 }
 
 func renderGoMod(scenario Scenario) string {
@@ -211,90 +354,6 @@ func renderGoMod(scenario Scenario) string {
 	}
 
 	return fmt.Sprintf("module %s\n\ngo %s\n", modulePath, goVersion)
-}
-
-func writeYAMLMap(builder *strings.Builder, indent int, values map[string]any) {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		writeYAMLValue(builder, indent, key, values[key])
-	}
-}
-
-func writeYAMLList(builder *strings.Builder, indent int, values []any) {
-	padding := strings.Repeat(" ", indent)
-
-	for _, value := range values {
-		switch item := value.(type) {
-		case map[string]any:
-			builder.WriteString(padding + "-\n")
-			writeYAMLMap(builder, indent+2, item)
-		case []any:
-			builder.WriteString(padding + "-\n")
-			writeYAMLList(builder, indent+2, item)
-		default:
-			_, _ = fmt.Fprintf(builder, "%s- %s\n", padding, yamlScalar(item))
-		}
-	}
-}
-
-func writeYAMLValue(builder *strings.Builder, indent int, key string, value any) {
-	padding := strings.Repeat(" ", indent)
-
-	switch typed := value.(type) {
-	case map[string]any:
-		if len(typed) == 0 {
-			_, _ = fmt.Fprintf(builder, "%s%s: {}\n", padding, key)
-			return
-		}
-
-		_, _ = fmt.Fprintf(builder, "%s%s:\n", padding, key)
-		writeYAMLMap(builder, indent+2, typed)
-	case []any:
-		if len(typed) == 0 {
-			_, _ = fmt.Fprintf(builder, "%s%s: []\n", padding, key)
-			return
-		}
-
-		_, _ = fmt.Fprintf(builder, "%s%s:\n", padding, key)
-		writeYAMLList(builder, indent+2, typed)
-	case []string:
-		if len(typed) == 0 {
-			_, _ = fmt.Fprintf(builder, "%s%s: []\n", padding, key)
-			return
-		}
-
-		_, _ = fmt.Fprintf(builder, "%s%s:\n", padding, key)
-		items := make([]any, len(typed))
-		for i, item := range typed {
-			items[i] = item
-		}
-		writeYAMLList(builder, indent+2, items)
-	default:
-		_, _ = fmt.Fprintf(builder, "%s%s: %s\n", padding, key, yamlScalar(value))
-	}
-}
-
-func yamlScalar(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return "null"
-	case string:
-		return fmt.Sprintf("%q", typed)
-	case bool:
-		if typed {
-			return "true"
-		}
-		return "false"
-	case fmt.Stringer:
-		return fmt.Sprintf("%q", typed.String())
-	default:
-		return fmt.Sprint(value)
-	}
 }
 
 func normalizeOutput(output string, workspace string) string {
@@ -324,14 +383,6 @@ func exitCode(err error) int {
 	}
 
 	return -1
-}
-
-func mapsClone(values map[string]string) map[string]string {
-	clone := make(map[string]string, len(values))
-	for key, value := range values {
-		clone[key] = value
-	}
-	return clone
 }
 
 func nonEmpty(values ...string) []string {

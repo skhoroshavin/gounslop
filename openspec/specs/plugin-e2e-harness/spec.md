@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Plugin E2E scenarios run against temporary Go workspaces
 The repository SHALL provide a reusable E2E test harness that can materialize a temporary Go workspace from scenario-defined files and execute the repository's `custom-gcl` binary against that workspace.
@@ -26,15 +26,43 @@ The harness SHALL expose whether a scenario completed without error or failed wi
 - **THEN** the harness returns an error result whose message is readable enough for a human or LLM to act on directly
 
 ### Requirement: Repository coverage includes representative plugin E2E cases
-The repository SHALL include representative plugin-level E2E coverage for at least one existing analyzer, including a failing multi-package case, a passing case, and a configuration-error case.
+The repository SHALL include representative plugin-level E2E coverage for all existing analyzers, including failing cases, passing cases, and configuration-error cases as appropriate per analyzer. E2E tests SHALL be the default and only test approach — no `analysistest`-based tests or `testdata/` fixture directories SHALL remain in analyzer packages.
 
-#### Scenario: Seed analyzer coverage exists
-- **WHEN** the initial harness change is complete
-- **THEN** the repository contains plugin E2E tests that cover a real analyzer with failing, passing, and configuration-error scenarios
+#### Scenario: All analyzers have E2E test coverage
+- **WHEN** the test suite is inspected for each analyzer under `pkg/`
+- **THEN** each analyzer has a `plugin_test.go` with E2E scenarios covering its major behaviors, and no `analyzer_test.go` using `analysistest` remains
+
+#### Scenario: nodeepimports E2E coverage
+- **WHEN** E2E tests for `nodeepimports` are run
+- **THEN** they cover: one-level deep import passes, deep import flagged, different top-level scope passes, test file import passes
+
+#### Scenario: nospecialunicode E2E coverage
+- **WHEN** E2E tests for `nospecialunicode` are run
+- **THEN** they cover: ASCII string passes, special Unicode punctuation flagged, raw string flagged, multiple banned characters reported
+
+#### Scenario: nounicodeescape E2E coverage
+- **WHEN** E2E tests for `nounicodeescape` are run
+- **THEN** they cover: literal Unicode characters pass, `\uXXXX`/`\UXXXXXXXX` escapes flagged, raw strings not flagged
+
+#### Scenario: readfriendlyorder E2E coverage
+- **WHEN** E2E tests for `readfriendlyorder` are run
+- **THEN** they cover: correct order passes, incorrect top-level order flagged, method ordering enforced, init ordering, TestMain ordering, cyclic dependencies exempt
+
+#### Scenario: nofalsesharing E2E coverage preserved
+- **WHEN** existing E2E tests for `nofalsesharing` are run after migration
+- **THEN** they continue to cover the same scenarios (shared package violation, multiple consumers pass, invalid settings)
 
 ### Requirement: Repository E2E command wiring prepares the plugin binary outside the harness
-The repository SHALL provide a command entrypoint for E2E execution that ensures `custom-gcl` is available before plugin E2E tests run, while keeping build orchestration outside the Go harness itself.
+The repository SHALL provide a command entrypoint for E2E execution that ensures `custom-gcl` is available before plugin E2E tests run, while keeping build orchestration outside the Go harness itself. E2E tests SHALL run as part of the default `make test` target without requiring build tags.
 
-#### Scenario: E2E suite is invoked from repository tooling
-- **WHEN** a contributor runs the repository's E2E test command
-- **THEN** the command ensures `custom-gcl` is prepared before the E2E tests execute and the Go harness only consumes the existing binary
+#### Scenario: E2E tests run by default via make test
+- **WHEN** `make test` is run
+- **THEN** the `custom-gcl` binary is built (if stale) and all E2E tests execute as part of `go test ./...` without requiring `-tags=e2e`
+
+#### Scenario: Running go test without custom-gcl fails clearly
+- **WHEN** `go test ./...` is run without `custom-gcl` in the repo root
+- **THEN** E2E tests fail with a clear message indicating `custom-gcl` must be built first
+
+#### Scenario: No e2e build tag is used
+- **WHEN** test files in `pkg/` are inspected for build tags
+- **THEN** none use `//go:build e2e`

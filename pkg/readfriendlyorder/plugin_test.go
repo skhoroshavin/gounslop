@@ -154,9 +154,102 @@ func (s *ReadfriendlyorderE2ESuite) TestValidMethodOrderPasses() {
 	})
 }
 
+func (s *ReadfriendlyorderE2ESuite) TestEagerEvaluationExempt() {
+	s.runScenario(ruletest.Scenario{
+		Name:       "eager evaluation: constant referenced by another constant is exempt",
+		ModulePath: readfriendlyorderModulePath,
+		Linter:     "readfriendlyorder",
+		Files: map[string]string{
+			"eager.go": "package main\n\nconst pi = 3.14\n\nconst twicePi = pi * 2\n",
+		},
+		Expect: ruletest.Expectation{
+			ExitCode:    0,
+			EmptyOutput: true,
+		},
+	})
+}
+
+func (s *ReadfriendlyorderE2ESuite) TestTestMainOrderingFlagged() {
+	s.runScenario(ruletest.Scenario{
+		Name:       "TestMain ordering flagged in test file",
+		ModulePath: readfriendlyorderModulePath,
+		Linter:     "readfriendlyorder",
+		Files: map[string]string{
+			"main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestSomething(t *testing.T) {}\n\nfunc TestMain(m *testing.M) {}\n",
+		},
+		Expect: ruletest.Expectation{
+			ExitCode: 1,
+			OutputContains: []string{
+				"Place TestMain",
+			},
+		},
+	})
+}
+
+func (s *ReadfriendlyorderE2ESuite) TestHelperBeforeExportedFix() {
+	s.runFixScenario(ruletest.Scenario{
+		Name:       "helper before exported is reordered by fix",
+		ModulePath: readfriendlyorderModulePath,
+		Linter:     "readfriendlyorder",
+		Files: map[string]string{
+			"fix.go": "package main\n\nfunc helper() int { return 1 }\n\nfunc Exported() int {\n\treturn helper()\n}\n",
+		},
+		Expect: ruletest.Expectation{
+			ExitCode:    0,
+			EmptyOutput: true,
+			FixedFiles: map[string]string{
+				"fix.go": "package main\n\nfunc Exported() int {\n\treturn helper()\n}\n\nfunc helper() int { return 1 }\n",
+			},
+		},
+	})
+}
+
+func (s *ReadfriendlyorderE2ESuite) TestInitOrderingFix() {
+	s.runFixScenario(ruletest.Scenario{
+		Name:       "init ordering fix swaps init before exported func",
+		ModulePath: readfriendlyorderModulePath,
+		Linter:     "readfriendlyorder",
+		Files: map[string]string{
+			"init.go": "package main\n\nfunc Setup() {}\n\nfunc init() {}\n",
+		},
+		Expect: ruletest.Expectation{
+			ExitCode:    0,
+			EmptyOutput: true,
+			FixedFiles: map[string]string{
+				"init.go": "package main\n\nfunc init() {}\n\nfunc Setup() {}\n",
+			},
+		},
+	})
+}
+
+func (s *ReadfriendlyorderE2ESuite) TestConstructorPlacementFix() {
+	s.runFixScenario(ruletest.Scenario{
+		Name:       "constructor placement fix moves constructor after type",
+		ModulePath: readfriendlyorderModulePath,
+		Linter:     "readfriendlyorder",
+		Files: map[string]string{
+			"constructor.go": "package main\n\ntype Handler struct{}\n\nfunc (h *Handler) Handle() int { return 1 }\n\nfunc NewHandler() *Handler { return &Handler{} }\n",
+		},
+		Expect: ruletest.Expectation{
+			ExitCode:    0,
+			EmptyOutput: true,
+			FixedFiles: map[string]string{
+				"constructor.go": "package main\n\ntype Handler struct{}\n\nfunc NewHandler() *Handler { return &Handler{} }\n\nfunc (h *Handler) Handle() int { return 1 }\n",
+			},
+		},
+	})
+}
+
 func (s *ReadfriendlyorderE2ESuite) runScenario(scenario ruletest.Scenario) {
 	s.T().Helper()
 
 	result := ruletest.Execute(s.T(), scenario)
+	ruletest.AssertResult(s.T(), scenario.Expect, result)
+}
+
+func (s *ReadfriendlyorderE2ESuite) runFixScenario(scenario ruletest.Scenario) {
+	s.T().Helper()
+
+	result := ruletest.ExecuteFix(s.T(), scenario)
 	ruletest.AssertResult(s.T(), scenario.Expect, result)
 }
