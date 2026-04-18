@@ -1,3 +1,7 @@
+## Purpose
+
+Define the repository's reusable plugin end-to-end testing harness, including the suite interface, inline scenario authoring model, assertion behavior, analyzer coverage expectations, and command wiring needed to execute plugin-level tests.
+
 ## Requirements
 
 ### Requirement: Plugin E2E scenarios run against temporary Go workspaces

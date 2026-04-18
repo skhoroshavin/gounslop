@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Define the repository's baseline GitHub Actions continuous integration workflow for pushes to `main`, including workflow naming, lint execution, test execution, and Go toolchain alignment.
+
+## Requirements
 
 ### Requirement: CI runs on pushes to main
 The repository SHALL execute a GitHub Actions workflow whenever a commit is pushed to the `main` branch.
