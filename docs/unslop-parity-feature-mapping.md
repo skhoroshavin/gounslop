@@ -45,7 +45,7 @@ It is intentionally planning-oriented:
 | `import-control` | Partially covered by `boundarycontrol` | Add via unified architecture feature | Current Go rule covers in-module boundaries and same-scope deep-import restrictions |
 | `no-whitebox-testing` | Missing | Drop as direct port | Go package model differs; closest ecosystem equivalent is `testpackage` |
 | `export-control` | Missing | Add via unified architecture feature | Needs Go-specific public-package/export contract model |
-| `no-false-sharing` | Partially covered by `boundarycontrol` | Migrate and expand | Current Go rule is package-level, upstream is symbol-level |
+| `no-false-sharing` | Covered by `boundarycontrol` | Keep expanding | Current Go rule now tracks exported symbols; continue closing edge-case parity gaps |
 | `no-single-use-constants` | Missing | Add as separate analyzer | Existing Go linters only partially overlap |
 
 ### Existing Go-specific value to preserve

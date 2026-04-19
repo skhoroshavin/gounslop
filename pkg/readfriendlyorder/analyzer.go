@@ -24,7 +24,7 @@ func run(pass *analysis.Pass) (any, error) {
 
 	for _, file := range pass.Files {
 		filename := pass.Fset.File(file.Pos()).Name()
-		if isGenerated(file) || strings.HasSuffix(filename, "_testmain.go") {
+		if ast.IsGenerated(file) || strings.HasSuffix(filename, "_testmain.go") {
 			continue
 		}
 
@@ -130,7 +130,23 @@ func reportTopLevelOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 	decls []decl, refs map[string]map[string]bool, cyclicNames map[string]bool) *analysis.SuggestedFix {
 
-	// Collect non-import file.Decls in order
+	fileDecls := collectNonImportDecls(file)
+	if hasMultiSpecViolation(fileDecls, decls, refs, cyclicNames) {
+		return nil
+	}
+
+	declToFileIdx := buildDeclToFileIndex(fileDecls)
+	children, moved := buildConsumerTree(decls, refs, cyclicNames, declToFileIdx)
+	newOrder := computeDFSOrder(fileDecls, children, moved)
+
+	if !orderChanged(newOrder) {
+		return nil
+	}
+
+	return buildReorderFix(pass.Fset, file, src, fileDecls, newOrder)
+}
+
+func collectNonImportDecls(file *ast.File) []ast.Decl {
 	var fileDecls []ast.Decl
 	for _, d := range file.Decls {
 		if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.IMPORT {
@@ -138,25 +154,33 @@ func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 		}
 		fileDecls = append(fileDecls, d)
 	}
+	return fileDecls
+}
 
-	// Check for multi-spec GenDecls — skip fix if any exist among violated decls
+// hasMultiSpecViolation checks for GenDecls with multiple specs that contain violations.
+// Reordering grouped declarations is unsafe.
+func hasMultiSpecViolation(fileDecls []ast.Decl, decls []decl, refs map[string]map[string]bool, cyclicNames map[string]bool) bool {
 	for _, d := range fileDecls {
-		if gd, ok := d.(*ast.GenDecl); ok && len(gd.Specs) > 1 {
-			// Check if any of the specs in this GenDecl are in the violation set
-			for _, spec := range gd.Specs {
-				for _, dd := range decls {
-					if dd.node == spec {
-						consumer := findFirstConsumer(decls, dd, refs)
-						if consumer != nil && !dd.exported && !cyclicNames[dd.name] {
-							return nil // Can't safely reorder grouped declarations
-						}
-					}
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || len(gd.Specs) <= 1 {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			for _, dd := range decls {
+				if dd.node != spec {
+					continue
+				}
+				consumer := findFirstConsumer(decls, dd, refs)
+				if consumer != nil && !dd.exported && !cyclicNames[dd.name] {
+					return true
 				}
 			}
 		}
 	}
+	return false
+}
 
-	// Build mapping from decl name to fileDecls index
+func buildDeclToFileIndex(fileDecls []ast.Decl) map[string]int {
 	declToFileIdx := make(map[string]int)
 	for i, fd := range fileDecls {
 		switch n := fd.(type) {
@@ -175,10 +199,12 @@ func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 			}
 		}
 	}
+	return declToFileIdx
+}
 
-	// Compute correct order: exported/anchors stay in place, helpers go after consumers
-	// Build tree: consumer -> [helpers that should follow it]
-	children := make(map[int][]int) // fileDecls index -> list of fileDecls indices to insert after
+func buildConsumerTree(decls []decl, refs map[string]map[string]bool, cyclicNames map[string]bool,
+	declToFileIdx map[string]int) (map[int][]int, map[int]bool) {
+	children := make(map[int][]int)
 	moved := make(map[int]bool)
 
 	for _, d := range decls {
@@ -200,7 +226,10 @@ func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 		}
 	}
 
-	// Build new order via DFS
+	return children, moved
+}
+
+func computeDFSOrder(fileDecls []ast.Decl, children map[int][]int, moved map[int]bool) []int {
 	newOrder := make([]int, 0, len(fileDecls))
 	var visit func(idx int)
 	visit = func(idx int) {
@@ -215,20 +244,16 @@ func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 			visit(i)
 		}
 	}
+	return newOrder
+}
 
-	// Check if order actually changed
-	changed := false
+func orderChanged(newOrder []int) bool {
 	for i, idx := range newOrder {
 		if idx != i {
-			changed = true
-			break
+			return true
 		}
 	}
-	if !changed {
-		return nil
-	}
-
-	return buildReorderFix(pass.Fset, file, src, fileDecls, newOrder)
+	return false
 }
 
 func collectTopLevelDecls(file *ast.File) []decl {
@@ -444,10 +469,6 @@ func hasEagerReference(decls []decl, helper decl, refs map[string]map[string]boo
 		}
 	}
 	return false
-}
-
-func isGenerated(file *ast.File) bool {
-	return ast.IsGenerated(file)
 }
 
 // decl represents a top-level declaration with metadata.

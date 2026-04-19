@@ -59,23 +59,24 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 
 	if hasTests {
 		for _, e := range entries {
-			if e.kind == "testmain" && e.index > 0 {
-				for _, other := range entries {
-					if other.index < e.index && (other.kind == "test" || other.kind == "benchmark") {
-						diag := analysis.Diagnostic{
-							Pos:     e.node.Pos(),
-							Message: "Place TestMain first in test file.",
-						}
-						fix := buildSwapFix(pass.Fset, file, src, other.node, e.node)
-						if fix != nil {
-							diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
-						}
-						pass.Report(diag)
-						break
-					}
-				}
-				break
+			if e.kind != "testmain" || e.index == 0 {
+				continue
 			}
+			for _, other := range entries {
+				if other.index < e.index && (other.kind == "test" || other.kind == "benchmark") {
+					diag := analysis.Diagnostic{
+						Pos:     e.node.Pos(),
+						Message: "Place TestMain first in test file.",
+					}
+					fix := buildSwapFix(pass.Fset, file, src, other.node, e.node)
+					if fix != nil {
+						diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+					}
+					pass.Report(diag)
+					break
+				}
+			}
+			break
 		}
 	}
 }

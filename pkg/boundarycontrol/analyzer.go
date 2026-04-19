@@ -181,9 +181,6 @@ func normalizeConfig(cfg Config) Config {
 	for selector, policy := range cfg.Architecture {
 		normalizedSelector := strings.TrimSpace(selector)
 		imports := append([]string(nil), policy.Imports...)
-		if imports == nil {
-			imports = []string{}
-		}
 
 		for i := range imports {
 			imports[i] = strings.TrimSpace(imports[i])
@@ -372,36 +369,14 @@ func matchesImportSelector(selector parsedSelector, importedRel string) bool {
 }
 
 func parseKeySelector(raw string) (parsedSelector, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "." {
-		return parsedSelector{kind: selectorKindRoot}, nil
-	}
-
-	if strings.HasSuffix(raw, "/*") {
-		base := strings.TrimSuffix(raw, "/*")
-		if !isValidRelPath(base) {
-			return parsedSelector{}, fmt.Errorf("unsupported key selector %q", raw)
-		}
-
-		return parsedSelector{
-			base:  base,
-			depth: segmentCount(base),
-			kind:  selectorKindChildWildcard,
-		}, nil
-	}
-
-	if !isValidRelPath(raw) {
-		return parsedSelector{}, fmt.Errorf("unsupported key selector %q", raw)
-	}
-
-	return parsedSelector{
-		base:  raw,
-		depth: segmentCount(raw),
-		kind:  selectorKindExact,
-	}, nil
+	return parseSelector(raw, "key", false)
 }
 
 func parseImportSelector(raw string) (parsedSelector, error) {
+	return parseSelector(raw, "import", true)
+}
+
+func parseSelector(raw, selectorType string, allowSelfOrChild bool) (parsedSelector, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "." {
 		return parsedSelector{kind: selectorKindRoot}, nil
@@ -410,7 +385,7 @@ func parseImportSelector(raw string) (parsedSelector, error) {
 	if strings.HasSuffix(raw, "/*") {
 		base := strings.TrimSuffix(raw, "/*")
 		if !isValidRelPath(base) {
-			return parsedSelector{}, fmt.Errorf("unsupported import selector %q", raw)
+			return parsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
 		}
 
 		return parsedSelector{
@@ -420,10 +395,10 @@ func parseImportSelector(raw string) (parsedSelector, error) {
 		}, nil
 	}
 
-	if strings.HasSuffix(raw, "/+") {
+	if allowSelfOrChild && strings.HasSuffix(raw, "/+") {
 		base := strings.TrimSuffix(raw, "/+")
 		if !isValidRelPath(base) {
-			return parsedSelector{}, fmt.Errorf("unsupported import selector %q", raw)
+			return parsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
 		}
 
 		return parsedSelector{
@@ -434,7 +409,7 @@ func parseImportSelector(raw string) (parsedSelector, error) {
 	}
 
 	if !isValidRelPath(raw) {
-		return parsedSelector{}, fmt.Errorf("unsupported import selector %q", raw)
+		return parsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
 	}
 
 	return parsedSelector{

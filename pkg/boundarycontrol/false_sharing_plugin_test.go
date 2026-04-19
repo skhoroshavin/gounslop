@@ -49,7 +49,9 @@ func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() 
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
 		"",
-		"import _ \"example.com/mod/shared/lib/http\"",
+		"import http \"example.com/mod/shared/lib/http\"",
+		"",
+		"var _ = http.X",
 	)
 	s.GivenFile("shared/lib/http/http.go",
 		"package http",
@@ -57,7 +59,7 @@ func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() 
 		"var X = 1",
 	)
 	s.LintFile("feature/api/consumer.go")
-	s.ShouldFailWith("shared/lib/http/http.go", "only used by: feature/api", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/lib/http/http.go", "X only used by: feature/api", "Must be used by 2+ entities")
 }
 
 func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubtreeAsShared() {
@@ -74,7 +76,9 @@ func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubt
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
 		"",
-		"import _ \"example.com/mod/shared/contracts/http\"",
+		"import http \"example.com/mod/shared/contracts/http\"",
+		"",
+		"var _ = http.X",
 	)
 	s.GivenFile("shared/contracts/http/http.go",
 		"package http",
@@ -82,7 +86,7 @@ func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubt
 		"var X = 1",
 	)
 	s.LintFile("feature/api/consumer.go")
-	s.ShouldFailWith("shared/contracts/http/http.go", "only used by: feature/api", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/contracts/http/http.go", "X only used by: feature/api", "Must be used by 2+ entities")
 }
 
 func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclaration() {
@@ -97,7 +101,9 @@ func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclar
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
 		"",
-		"import _ \"example.com/mod/shared/lib/http\"",
+		"import http \"example.com/mod/shared/lib/http\"",
+		"",
+		"var _ = http.X",
 	)
 	s.GivenFile("shared/lib/http/http.go",
 		"package http",
@@ -122,7 +128,9 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
 	s.GivenFile("featurea/consumer.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("featureb/consumer.go",
 		"package featureb",
@@ -135,7 +143,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
 		"func Value() string { return \"x\" }",
 	)
 	s.LintFile("featurea/consumer.go")
-	s.ShouldFailWith("shared/util.go", "only used by: featurea", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses() {
@@ -155,12 +163,16 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses()
 	s.GivenFile("featurea/consumer.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("featureb/consumer.go",
 		"package featureb",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("shared/util.go",
 		"package shared",
@@ -185,12 +197,16 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsume
 	s.GivenFile("featurea/consumer.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("featurea/consumer_test.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("shared/util.go",
 		"package shared",
@@ -198,7 +214,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsume
 		"func Value() string { return \"x\" }",
 	)
 	s.LintFile("featurea/consumer.go")
-	s.ShouldFailWith("shared/util.go", "only used by: featurea", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
@@ -223,7 +239,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
 		"func Value() string { return \"x\" }",
 	)
 	s.LintFile("featurea/consumer.go")
-	s.ShouldFailWith("shared/util.go", "not imported by any entity", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/util.go", "Value not used by any entity", "Must be used by 2+ entities")
 }
 
 func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() {
@@ -240,12 +256,16 @@ func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() 
 	s.GivenFile("featurea/consumer_a.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("featurea/consumer_b.go",
 		"package featurea",
 		"",
-		"import _ \"example.com/mod/shared\"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
 	)
 	s.GivenFile("shared/util.go",
 		"package shared",
@@ -253,5 +273,145 @@ func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() 
 		"func Value() string { return \"x\" }",
 	)
 	s.LintFile("featurea/consumer_a.go")
-	s.ShouldFailWith("shared/util.go", "only used by: featurea", "Must be used by 2+ entities")
+	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
+}
+
+func (s *BoundarycontrolE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFailSeparately() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"shared": map[string]any{
+				"shared": true,
+			},
+			"featurea": map[string]any{
+				"imports": []string{"shared"},
+			},
+			"featureb": map[string]any{
+				"imports": []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("featurea/consumer.go",
+		"package featurea",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.A()",
+	)
+	s.GivenFile("featureb/consumer.go",
+		"package featureb",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.B()",
+	)
+	s.GivenFile("shared/util.go",
+		"package shared",
+		"",
+		"func A() string { return \"a\" }",
+		"func B() string { return \"b\" }",
+	)
+	s.LintFile("featurea/consumer.go")
+	s.ShouldFailWith(
+		"shared/util.go",
+		"A only used by: featurea",
+		"B only used by: featureb",
+		"Must be used by 2+ entities",
+	)
+}
+
+func (s *BoundarycontrolE2ESuite) TestInternalSharedPackageReferenceCountsAsConsumer() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"shared": map[string]any{
+				"shared": true,
+			},
+			"featurea": map[string]any{
+				"imports": []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("featurea/consumer.go",
+		"package featurea",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Value()",
+	)
+	s.GivenFile("shared/util.go",
+		"package shared",
+		"",
+		"func Value() string { return \"x\" }",
+		"func useValue() string { return Value() }",
+	)
+	s.LintFile("featurea/consumer.go")
+	s.ShouldPass()
+}
+
+func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoExportedSymbolsProducesNoDiagnostics() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"shared": map[string]any{
+				"shared": true,
+			},
+			"featurea": map[string]any{
+				"imports": []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("featurea/consumer.go",
+		"package featurea",
+		"",
+		"import _ \"example.com/mod/shared\"",
+	)
+	s.GivenFile("shared/util.go",
+		"package shared",
+		"",
+		"func value() string { return \"x\" }",
+	)
+	s.LintFile("featurea/consumer.go")
+	s.ShouldPass()
+}
+
+func (s *BoundarycontrolE2ESuite) TestExportedSymbolFormsUsingTypeInfo() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"shared": map[string]any{
+				"shared": true,
+			},
+			"featurea": map[string]any{
+				"imports": []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("featurea/consumer.go",
+		"package featurea",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.FuncValue()",
+		"var _ shared.Widget",
+		"var _ = shared.SharedValue",
+		"const _ = shared.SharedConst",
+		"var _ = shared.Worker{}.Do()",
+	)
+	s.GivenFile("shared/util.go",
+		"package shared",
+		"",
+		"func FuncValue() string { return \"x\" }",
+		"type Widget struct{}",
+		"var SharedValue = 1",
+		"const SharedConst = \"x\"",
+		"type Worker struct{}",
+		"func (Worker) Do() string { return \"x\" }",
+	)
+	s.LintFile("featurea/consumer.go")
+	s.ShouldFailWith(
+		"shared/util.go",
+		"FuncValue only used by: featurea",
+		"Widget only used by: featurea",
+		"SharedValue only used by: featurea",
+		"SharedConst only used by: featurea",
+		"Worker.Do only used by: featurea",
+		"Must be used by 2+ entities",
+	)
 }

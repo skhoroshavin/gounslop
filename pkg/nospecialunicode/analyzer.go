@@ -32,23 +32,12 @@ func run(pass *analysis.Pass) (any, error) {
 			return
 		}
 
-		var value string
-		if lit.Kind == token.CHAR {
-			v, _, _, err := strconv.UnquoteChar(lit.Value[1:len(lit.Value)-1], '\'')
-			if err != nil {
-				return
-			}
-			value = string(v)
-		} else {
-			var err error
-			value, err = strconv.Unquote(lit.Value)
-			if err != nil {
-				return
-			}
+		value, ok := unquoteLiteral(lit)
+		if !ok {
+			return
 		}
 
-		// Compute the fix once for all banned chars in this literal
-		fixed, fixable := buildFixedLiteral(lit)
+		fixed, fixable := buildFixedLiteral(lit.Kind, lit.Value, value)
 
 		for _, bc := range bannedChars {
 			if !strings.ContainsRune(value, bc.char) {
@@ -104,31 +93,29 @@ var bannedChars = []bannedChar{
 	{'\u2026', "horizontal ellipsis", "..."},
 }
 
-// buildFixedLiteral computes the fixed version of a literal with all banned chars replaced.
-func buildFixedLiteral(lit *ast.BasicLit) (string, bool) {
-	raw := lit.Value
-	delimiter := raw[0]
-	isRaw := delimiter == '`'
-
-	var value string
-	switch {
-	case lit.Kind == token.CHAR:
-		v, _, _, err := strconv.UnquoteChar(raw[1:len(raw)-1], '\'')
+func unquoteLiteral(lit *ast.BasicLit) (string, bool) {
+	if lit.Kind == token.CHAR {
+		v, _, _, err := strconv.UnquoteChar(lit.Value[1:len(lit.Value)-1], '\'')
 		if err != nil {
 			return "", false
 		}
-		value = string(v)
-	case isRaw:
-		value = raw[1 : len(raw)-1]
-	default:
-		var err error
-		value, err = strconv.Unquote(raw)
-		if err != nil {
-			return "", false
-		}
+		return string(v), true
 	}
 
-	// Replace all banned chars with their ASCII equivalents
+	if lit.Value[0] == '`' {
+		return lit.Value[1 : len(lit.Value)-1], true
+	}
+
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func buildFixedLiteral(kind token.Token, raw string, value string) (string, bool) {
+	delimiter := raw[0]
+
 	anyReplaced := false
 	var b strings.Builder
 	for _, r := range value {
@@ -138,7 +125,6 @@ func buildFixedLiteral(lit *ast.BasicLit) (string, bool) {
 			continue
 		}
 		if !isReplacementSafe(repl, delimiter) {
-			// Unsafe replacement — keep the original char
 			b.WriteRune(r)
 			continue
 		}
@@ -152,11 +138,10 @@ func buildFixedLiteral(lit *ast.BasicLit) (string, bool) {
 
 	replaced := b.String()
 
-	// Re-quote the value back into a Go literal
 	switch {
-	case lit.Kind == token.CHAR:
+	case kind == token.CHAR:
 		return strconv.QuoteRune([]rune(replaced)[0]), true
-	case isRaw:
+	case delimiter == '`':
 		return "`" + replaced + "`", true
 	default:
 		return strconv.Quote(replaced), true

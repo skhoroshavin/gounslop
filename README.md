@@ -165,8 +165,8 @@ Notes:
 - Imports from a package to its immediate child package stay allowed even without an explicit rule.
 - Same-scope deep imports are rejected directly by `boundarycontrol`.
 - Module scope comes from the nearest enclosing `go.mod`; nested modules are treated as out of scope for the parent module.
-- A selector with `shared: true` marks its owned package subtree for package-level false-sharing checks.
-- Shared-package consumers are counted by importing package path from non-test code.
+- A selector with `shared: true` marks its owned package subtree for exported-symbol-level false-sharing checks.
+- Shared-package consumers are counted per exported symbol by direct non-test importing package path, with same-package references also counting as a consumer for that symbol.
 - There is no separate `nofalsesharing` plugin or selector-level `mode` setting anymore.
 
 ### `readfriendlyorder`
