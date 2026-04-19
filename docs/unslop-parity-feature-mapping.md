@@ -124,13 +124,13 @@ This is easier to reason about than raw regex matching and maps better to severa
 
 ### Recommended name
 
-- `archcontrol`
+- `boundarycontrol`
 
 Why:
 
 - short enough for `golangci-lint`
-- broad enough to hold import, export, and shared-package concerns
-- still specific enough to imply architecture boundaries rather than generic style checks
+- matches the implemented first-step scope: import boundaries only
+- leaves room for a later broader architecture wrapper if needed
 
 ### Other plausible names
 
@@ -142,7 +142,7 @@ Why:
 
 ### Naming recommendation
 
-Use `archcontrol` unless a later design shows that the feature should remain import-only.
+Use `boundarycontrol` for the current import-boundary rule.
 
 ### Rename strategy options
 

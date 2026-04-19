@@ -49,7 +49,7 @@ Guidance for coding agents working in `gounslop`.
 
 ## Local Lint Guardrails
 
-- Self-linting uses `nodeepimports` and `readfriendlyorder` from this repo via `.custom-gcl.yml`
+- Self-linting uses `boundarycontrol`, `nodeepimports`, and `readfriendlyorder` from this repo via `.custom-gcl.yml`
 - Standard linters enabled: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, `gocritic`, `dupl` (threshold: 100)
 - Formatters: `gofmt`, `goimports`
 

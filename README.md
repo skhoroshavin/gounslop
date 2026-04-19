@@ -26,7 +26,7 @@ golangci-lint custom
 
 ## Quick Start
 
-The three most universal analyzers need no configuration beyond enabling them in `.golangci.yml`:
+The two most universal analyzers need no configuration beyond enabling them in `.golangci.yml`:
 
 ```yaml
 version: "2"
@@ -35,13 +35,6 @@ linters:
   enable:
     - nospecialunicode
     - nounicodeescape
-    - nodeepimports
-  settings:
-    custom:
-      nodeepimports:
-        type: "module"
-        settings:
-          module-root: "github.com/your-org/your-repo"
 ```
 
 This turns on:
@@ -50,17 +43,31 @@ This turns on:
 | ------------------ | ------------------------------------------------------------------- |
 | `nospecialunicode` | Catches smart quotes, invisible spaces, and other unicode impostors |
 | `nounicodeescape`  | Prefers `"©"` over `"\u00A9"`                                       |
-| `nodeepimports`    | Prevents importing too deep within the same top-level folder        |
 
 The remaining analyzers need explicit configuration:
 
 ```yaml
 linters:
   enable:
+    - boundarycontrol
+    - nodeepimports
     - nofalsesharing
     - readfriendlyorder
   settings:
     custom:
+      boundarycontrol:
+        type: "module"
+        settings:
+          module-root: "github.com/your-org/your-repo"
+          selectors:
+            - selector: "."
+              imports: ["pkg/+", "internal/*"]
+            - selector: "pkg/repository/*"
+              imports: ["pkg/models/+", "pkg/utils"]
+      nodeepimports:
+        type: "module"
+        settings:
+          module-root: "github.com/your-org/your-repo"
       nofalsesharing:
         type: "module"
         settings:
@@ -129,6 +136,69 @@ import "github.com/org/repo/pkg/auth/validators"
 // Bad — two levels deep into same top-level folder
 import "github.com/org/repo/pkg/auth/validators/internal"
 ```
+
+### `boundarycontrol`
+
+Enforces selector-based package import boundaries inside a configured module root. `boundarycontrol` is the new import-boundary rule: it controls which in-module packages may import which other in-module packages, ignores standard-library and third-party imports outside your module root, and also subsumes the same-scope deep-import behavior currently provided by `nodeepimports`.
+
+`nodeepimports` still exists in this release. Keeping both enabled is allowed during migration, but they can report overlapping same-scope deep-import diagnostics.
+
+#### Settings
+
+| Setting       | Type       | Required | Description |
+| ------------- | ---------- | -------- | ----------- |
+| `module-root` | `string`   | yes      | Go module path prefix (e.g. `github.com/org/repo`) |
+| `selectors`   | `[]object` | yes      | Ordered selector policies. Earlier entries win remaining precedence ties |
+
+Each selector entry has this shape:
+
+```yaml
+- selector: "pkg/repository/*"
+  imports: ["pkg/models/+", "pkg/utils"]
+```
+
+Supported key selector forms:
+
+| Selector | Matches |
+| -------- | ------- |
+| `.` | The module root package only |
+| `pkg/models` | That package and all descendants |
+| `pkg/repository/*` | Each direct child subtree under `pkg/repository`, but not `pkg/repository` itself |
+
+Supported `imports` selector forms:
+
+| Selector | Matches |
+| -------- | ------- |
+| `pkg/models` | That exact package only |
+| `pkg/models/*` | Direct child packages only |
+| `pkg/models/+` | The package itself and its direct children |
+
+#### Example
+
+```yaml
+linters:
+  enable:
+    - boundarycontrol
+  settings:
+    custom:
+      boundarycontrol:
+        type: "module"
+        settings:
+          module-root: "github.com/org/repo"
+          selectors:
+            - selector: "."
+              imports: ["pkg/+", "internal/*"]
+            - selector: "pkg/api"
+              imports: ["pkg/contracts", "pkg/shared/+", "internal/http/*"]
+            - selector: "pkg/repository/*"
+              imports: ["pkg/models/+", "pkg/utils"]
+```
+
+Notes:
+
+- Unmatched in-module packages behave as `imports: []`.
+- Imports from a package to its immediate child package stay allowed even without an explicit rule.
+- Same-scope deep imports that would already be rejected by `nodeepimports` are also rejected by `boundarycontrol`.
 
 ### `nofalsesharing`
 

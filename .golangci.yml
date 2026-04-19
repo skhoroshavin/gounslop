@@ -5,6 +5,7 @@ run:
 
 linters:
   enable:
+    - boundarycontrol
     - errcheck
     - govet
     - ineffassign
@@ -16,6 +17,15 @@ linters:
     - readfriendlyorder
   settings:
     custom:
+      boundarycontrol:
+        type: "module"
+        settings:
+          module-root: "github.com/skhoroshavin/gounslop"
+          selectors:
+            - selector: "plugin"
+              imports: ["pkg/*"]
+            - selector: "pkg/*"
+              imports: ["internal/*"]
       nodeepimports:
         type: "module"
         settings:

@@ -1,8 +1,9 @@
-## Purpose
+## RENAMED Requirements
 
-Define the baseline architecture-control rules for limiting deep same-scope imports and enforcing boundarycontrol within a configured module root.
+### Requirement: FROM: The deep-import rule is disabled without module-root
+### TO: Architecture-control requires module-root
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep same-scope imports are limited within a configured module root
 When `module-root` is configured, the system SHALL evaluate imports whose paths stay under that module root. `boundarycontrol` SHALL subsume the existing same-scope deep-import behavior: if the importing package and imported package share the same first path segment beneath `module-root`, the imported package SHALL be at most one level deeper than the importing package, except that an immediate child import SHALL always remain allowed regardless of configured boundary rules.
@@ -23,7 +24,7 @@ When `module-root` is configured, the system SHALL evaluate imports whose paths 
 The system SHALL ignore imports that are outside the configured `module-root` for boundary matching and deep-import evaluation. Imports that stay inside the configured `module-root` SHALL remain subject to boundarycontrol evaluation even when the importer and imported package are in different top-level scopes beneath that root.
 
 #### Scenario: Different top-level scope import remains subject to boundarycontrol
-- **WHEN** `example.com/mod/featurea` imports `example.com/mod/featureb/other/deep`
+- **WHEN** `example.com/mod/featurea` imports `example.com/mod/featureb/other/deep` and no owning boundarycontrol policy allows that import
 - **THEN** the system reports an undeclared boundarycontrol import violation
 
 #### Scenario: External dependency import is outside boundary matching
@@ -36,6 +37,8 @@ The system SHALL report a configuration error when architecture-control evaluati
 #### Scenario: Module root is omitted
 - **WHEN** the analyzer runs without a configured `module-root`
 - **THEN** it reports a configuration error that `module-root` is required
+
+## ADDED Requirements
 
 ### Requirement: Boundarycontrol uses selector-owned package policy
 When `module-root` is configured, the system SHALL support a `boundarycontrol` rule whose policy is keyed by package selectors. Supported key selector forms SHALL be `.`, exact package paths such as `feature` or `feature/api`, and terminal child wildcard selectors such as `feature/*`. Exact keys SHALL own the named package and all of its descendants. Child wildcard keys SHALL own each direct child subtree beneath the parent path, including deeper descendants inside each owned child subtree, but SHALL not match the parent path itself.

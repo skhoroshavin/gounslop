@@ -1,7 +1,11 @@
 package plugin
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/golangci/plugin-module-register/register"
+	"github.com/skhoroshavin/gounslop/pkg/boundarycontrol"
 	"github.com/skhoroshavin/gounslop/pkg/nodeepimports"
 	"github.com/skhoroshavin/gounslop/pkg/nofalsesharing"
 	"github.com/skhoroshavin/gounslop/pkg/nospecialunicode"
@@ -11,6 +15,7 @@ import (
 )
 
 func init() {
+	register.Plugin("boundarycontrol", newBoundarycontrolPlugin)
 	register.Plugin("nospecialunicode", newSyntaxPlugin(nospecialunicode.Analyzer))
 	register.Plugin("nounicodeescape", newSyntaxPlugin(nounicodeescape.Analyzer))
 	register.Plugin("nodeepimports", newNodeeepimportsPlugin)
@@ -41,6 +46,45 @@ func newNodeeepimportsPlugin(conf any) (register.LinterPlugin, error) {
 		}
 	}
 	return &simplePlugin{analyzer: nodeepimports.Analyzer, loadMode: register.LoadModeTypesInfo}, nil
+}
+
+func newBoundarycontrolPlugin(conf any) (register.LinterPlugin, error) {
+	s, err := register.DecodeSettings[boundarycontrolSettings](conf)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := boundarycontrol.Config{
+		ModuleRoot: strings.TrimRight(strings.TrimSpace(s.ModuleRoot), "/"),
+		Selectors:  make([]boundarycontrol.SelectorPolicy, 0, len(s.Selectors)),
+	}
+	for _, selector := range s.Selectors {
+		cfg.Selectors = append(cfg.Selectors, boundarycontrol.SelectorPolicy{
+			Selector: selector.Selector,
+			Imports:  append([]string(nil), selector.Imports...),
+		})
+	}
+
+	if err := boundarycontrol.ValidateConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	selectorsJSON, err := json.Marshal(cfg.Selectors)
+	if err != nil {
+		return nil, err
+	}
+
+	a := boundarycontrol.Analyzer
+	for name, val := range map[string]string{
+		"module-root": cfg.ModuleRoot,
+		"selectors":   string(selectorsJSON),
+	} {
+		if err := a.Flags.Set(name, val); err != nil {
+			return nil, err
+		}
+	}
+
+	return &simplePlugin{analyzer: a, loadMode: register.LoadModeTypesInfo}, nil
 }
 
 func newNofalsesharingPlugin(conf any) (register.LinterPlugin, error) {
@@ -79,6 +123,16 @@ func (p *simplePlugin) GetLoadMode() string {
 
 type nodeepimportsSettings struct {
 	ModuleRoot string `json:"module-root"`
+}
+
+type boundarycontrolSettings struct {
+	ModuleRoot string                            `json:"module-root"`
+	Selectors  []boundarycontrolSelectorSettings `json:"selectors"`
+}
+
+type boundarycontrolSelectorSettings struct {
+	Selector string   `json:"selector"`
+	Imports  []string `json:"imports"`
 }
 
 type nofalsesharingSettings struct {
