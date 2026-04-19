@@ -109,13 +109,16 @@ Enforces selector-based package import boundaries inside the nearest enclosing G
 
 | Setting | Type | Required | Description |
 | ------- | ---- | -------- | ----------- |
-| `architecture` | `map[string]object` | yes | Boundary and shared-package policy keyed by package selector |
+| `architecture` | `map[string]object` | yes | Boundary, export-contract, and shared-package policy keyed by package selector |
 
 Each architecture entry has this shape:
 
 ```yaml
 "pkg/repository/*":
   imports: ["pkg/models/+", "pkg/utils"]
+
+"pkg/api":
+  exports: ["^New[A-Z].*$", "^[A-Z][A-Za-z0-9]*Error$"]
 
 "pkg/shared":
   shared: true
@@ -155,6 +158,7 @@ linters:
               imports: ["pkg/+", "internal/*", "pkg/shared"]
             "pkg/api":
               imports: ["pkg/contracts", "pkg/shared/+", "internal/http/*"]
+              exports: ["^New[A-Z].*$", "^[A-Z][A-Za-z0-9]*Error$"]
             "pkg/repository/*":
               imports: ["pkg/models/+", "pkg/utils"]
 ```
@@ -165,6 +169,8 @@ Notes:
 - Imports from a package to its immediate child package stay allowed even without an explicit rule.
 - Same-scope deep imports are rejected directly by `boundarycontrol`.
 - Module scope comes from the nearest enclosing `go.mod`; nested modules are treated as out of scope for the parent module.
+- A selector with `exports` enables export-contract checks for exported top-level package declarations owned by that selector.
+- Export-contract patterns use full-name regex matching; exported methods are excluded from this check.
 - A selector with `shared: true` marks its owned package subtree for exported-symbol-level false-sharing checks.
 - Shared-package consumers are counted per exported symbol by direct non-test importing package path, with same-package references also counting as a consumer for that symbol.
 - There is no separate `nofalsesharing` plugin or selector-level `mode` setting anymore.

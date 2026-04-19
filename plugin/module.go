@@ -79,6 +79,7 @@ type boundarycontrolSettings struct {
 
 type boundarycontrolPolicySettings struct {
 	Imports []string `json:"imports"`
+	Exports []string `json:"exports"`
 	Shared  bool     `json:"shared"`
 	Mode    *string  `json:"mode"`
 }
@@ -98,6 +99,7 @@ func (s boundarycontrolSettings) toConfig() (boundarycontrol.Config, error) {
 
 		cfg.Architecture[selector] = boundarycontrol.Policy{
 			Imports: append([]string(nil), policy.Imports...),
+			Exports: append([]string(nil), policy.Exports...),
 			Shared:  policy.Shared,
 		}
 	}

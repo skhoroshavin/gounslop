@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/types"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +28,7 @@ type Config struct {
 
 type Policy struct {
 	Imports []string `json:"imports"`
+	Exports []string `json:"exports"`
 	Shared  bool     `json:"shared"`
 }
 
@@ -86,6 +89,8 @@ func run(pass *analysis.Pass) (any, error) {
 		pass.Reportf(imp.Pos(), "undeclared boundarycontrol import: %s", importPath)
 	})
 
+	reportExportContractDiagnostics(pass, importerRel, cfg)
+
 	if err := reportFalseSharingDiagnostic(pass, moduleCtx, cfg); err != nil {
 		return nil, err
 	}
@@ -109,7 +114,6 @@ func configFromFlags() (compiledConfig, error) {
 	}
 
 	return compiled, nil
-
 }
 
 var architectureFlag string
@@ -132,6 +136,7 @@ func compileConfig(cfg Config) (compiledConfig, error) {
 
 		policy := cfg.Architecture[selector]
 		imports := policy.Imports
+		exports := policy.Exports
 		parsedImports := make([]parsedSelector, 0, len(imports))
 		for i, importSelector := range imports {
 			parsedImport, err := parseImportSelector(importSelector)
@@ -140,6 +145,16 @@ func compileConfig(cfg Config) (compiledConfig, error) {
 			}
 
 			parsedImports = append(parsedImports, parsedImport)
+		}
+
+		compiledExports := make([]*regexp.Regexp, 0, len(exports))
+		for i, exportPattern := range exports {
+			compiledPattern, err := regexp.Compile("^(?:" + exportPattern + ")$")
+			if err != nil {
+				return compiledConfig{}, fmt.Errorf("boundarycontrol: architecture[%q].exports[%d]: invalid regex: %w", selector, i, err)
+			}
+
+			compiledExports = append(compiledExports, compiledPattern)
 		}
 
 		if policy.Shared {
@@ -156,10 +171,17 @@ func compileConfig(cfg Config) (compiledConfig, error) {
 			cacheKey.WriteString(importSelector)
 			cacheKey.WriteByte(0)
 		}
+		for _, exportPattern := range exports {
+			cacheKey.WriteString("export")
+			cacheKey.WriteByte(0)
+			cacheKey.WriteString(exportPattern)
+			cacheKey.WriteByte(0)
+		}
 
 		policies = append(policies, compiledPolicy{
 			selector: parsedKey,
 			imports:  parsedImports,
+			exports:  compiledExports,
 			shared:   policy.Shared,
 		})
 	}
@@ -186,8 +208,14 @@ func normalizeConfig(cfg Config) Config {
 			imports[i] = strings.TrimSpace(imports[i])
 		}
 
+		exports := append([]string(nil), policy.Exports...)
+		for i := range exports {
+			exports[i] = strings.TrimSpace(exports[i])
+		}
+
 		normalized[normalizedSelector] = Policy{
 			Imports: imports,
+			Exports: exports,
 			Shared:  policy.Shared,
 		}
 	}
@@ -238,6 +266,56 @@ func isImmediateChildImport(importerRel, importedRel string) bool {
 	return segmentCount(strings.TrimPrefix(importedRel, prefix)) == 1
 }
 
+func reportExportContractDiagnostics(pass *analysis.Pass, importerRel string, cfg compiledConfig) {
+	owner, found := resolveOwner(cfg.policies, importerRel)
+	if !found || len(owner.exports) == 0 {
+		return
+	}
+
+	for _, obj := range exportedPackageScopeObjects(pass.Pkg) {
+		if matchesExportContract(owner.exports, obj.Name()) {
+			continue
+		}
+
+		pass.Reportf(obj.Pos(), "exported declaration %s does not match boundarycontrol export contract", obj.Name())
+	}
+}
+
+func exportedPackageScopeObjects(pkg *types.Package) []types.Object {
+	if pkg == nil {
+		return nil
+	}
+
+	scope := pkg.Scope()
+	names := scope.Names()
+	sort.Strings(names)
+
+	objects := make([]types.Object, 0, len(names))
+	for _, name := range names {
+		obj := scope.Lookup(name)
+		if obj == nil || !obj.Exported() {
+			continue
+		}
+
+		switch obj.(type) {
+		case *types.Func, *types.TypeName, *types.Var, *types.Const:
+			objects = append(objects, obj)
+		}
+	}
+
+	return objects
+}
+
+func matchesExportContract(patterns []*regexp.Regexp, name string) bool {
+	for _, pattern := range patterns {
+		if pattern.MatchString(name) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func resolveOwner(policies []compiledPolicy, importerRel string) (compiledPolicy, bool) {
 	var best compiledPolicy
 	var bestCandidate ownerCandidate
@@ -268,6 +346,7 @@ type compiledConfig struct {
 type compiledPolicy struct {
 	selector parsedSelector
 	imports  []parsedSelector
+	exports  []*regexp.Regexp
 	shared   bool
 }
 

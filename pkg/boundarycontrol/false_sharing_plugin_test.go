@@ -35,6 +35,103 @@ func (s *BoundarycontrolE2ESuite) TestSharedFlagWrongTypeFailsClearly() {
 	s.ShouldFailWith("boundarycontrol", "invalid architecture settings", "shared")
 }
 
+func (s *BoundarycontrolE2ESuite) TestExportsWrongTypeFailsClearly() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"pkg/api": map[string]any{
+				"exports": "^New[A-Z].*$",
+			},
+		},
+	})
+	s.GivenFile("pkg/api/api.go",
+		"package api",
+		"",
+		"func NewClient() {}",
+	)
+	s.LintFile("pkg/api/api.go")
+	s.ShouldFailWith("boundarycontrol", "invalid architecture settings", "exports")
+}
+
+func (s *BoundarycontrolE2ESuite) TestInvalidExportRegexFailsClearly() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"pkg/api": map[string]any{
+				"exports": []string{"("},
+			},
+		},
+	})
+	s.GivenFile("pkg/api/api.go",
+		"package api",
+		"",
+		"func NewClient() {}",
+	)
+	s.LintFile("pkg/api/api.go")
+	s.ShouldFailWith("boundarycontrol", `architecture["pkg/api"].exports[0]: invalid regex`)
+}
+
+func (s *BoundarycontrolE2ESuite) TestExportContractsAllowMatchingTopLevelDeclarations() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"pkg/api": map[string]any{
+				"exports": []string{"^New[A-Z].*$", "^Client$"},
+			},
+		},
+	})
+	s.GivenFile("pkg/api/api.go",
+		"package api",
+		"",
+		"type Client struct{}",
+		"",
+		"func NewClient() Client {",
+		"\treturn Client{}",
+		"}",
+		"",
+		"func buildClient() Client {",
+		"\treturn Client{}",
+		"}",
+		"",
+		"func (Client) Build() Client {",
+		"\treturn Client{}",
+		"}",
+	)
+	s.LintFile("pkg/api/api.go")
+	s.ShouldPass()
+}
+
+func (s *BoundarycontrolE2ESuite) TestExportContractsReportViolatingTopLevelDeclaration() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"pkg/api": map[string]any{
+				"exports": []string{"^New[A-Z].*$"},
+			},
+		},
+	})
+	s.GivenFile("pkg/api/api.go",
+		"package api",
+		"",
+		"func BuildClient() {}",
+	)
+	s.LintFile("pkg/api/api.go")
+	s.ShouldFailWith("pkg/api/api.go", "BuildClient does not match boundarycontrol export contract")
+}
+
+func (s *BoundarycontrolE2ESuite) TestExportContractsUseFullNameMatching() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"pkg/api": map[string]any{
+				"exports": []string{"Error"},
+			},
+		},
+	})
+	s.GivenFile("pkg/api/api.go",
+		"package api",
+		"",
+		"type ClientError struct{}",
+	)
+	s.LintFile("pkg/api/api.go")
+	s.ShouldFailWith("pkg/api/api.go", "ClientError does not match boundarycontrol export contract")
+}
+
 func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() {
 	s.GivenConfig(map[string]any{
 		"architecture": map[string]any{

@@ -34,8 +34,8 @@ Guidance for coding agents working in `gounslop`.
 
 - `plugin/module.go`: plugin entrypoint — registers all analyzers with golangci-lint
 - `pkg/<analyzer>/analyzer.go`: each analyzer exports a single `Analyzer` variable of type `*analysis.Analyzer`
-- `pkg/<analyzer>/testdata/src/`: test packages with `// want "..."` annotations
-- `pkg/<analyzer>/*_test.go`: tests using `analysistest`
+- `internal/ruletest/`: shared E2E harness for exercising analyzers through the custom golangci-lint binary
+- `pkg/<analyzer>/*_plugin_test.go`: analyzer coverage through the existing E2E test framework
 - `.custom-gcl.yml`: golangci-lint custom binary build config
 - `.golangci.yml`: linter config for self-linting
 - `Makefile`: build and test targets
@@ -95,11 +95,10 @@ Guidance for coding agents working in `gounslop`.
 
 ## Testing Conventions
 
-- Use `analysistest` from `golang.org/x/tools/go/analysis/analysistest`
-- Test data lives in `testdata/src/` under each analyzer package
-- Annotate expected diagnostics with `// want "..."` comments in test data files
-- Use `analysistest.Run(t, analysistest.TestData(), Analyzer, "package/path")` pattern
-- Test both valid code (no diagnostics) and invalid code (expected diagnostics)
+- Use the existing E2E framework in `internal/ruletest` for analyzer coverage
+- Add coverage in the analyzer package's existing `*_plugin_test.go` suite unless the repo already uses a different pattern for that analyzer
+- Prefer real configuration and workspace scenarios over adding `analysistest` fixtures
+- Do not introduce new `testdata` trees or `analysistest`-style tests unless the user explicitly asks for that testing style
 
 ## Error Handling and Resilience
 

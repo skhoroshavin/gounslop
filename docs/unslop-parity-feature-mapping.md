@@ -95,7 +95,7 @@ The upstream plugin has one shared architecture-policy model used by multiple ru
 
 Without unification, `gounslop` is likely to grow a pile of disconnected flags:
 
-- `boundarycontrol`: selector-owned `imports` and `shared` policy
+- `boundarycontrol`: selector-owned `imports`, `exports`, and `shared` policy
 - future import control: unknown new flags
 - future export control: unknown new flags
 
