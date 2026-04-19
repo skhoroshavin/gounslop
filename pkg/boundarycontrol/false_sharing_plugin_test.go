@@ -32,7 +32,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedFlagWrongTypeFailsClearly() {
 		"func Use() {}",
 	)
 	s.LintFile("feature/consumer.go")
-	s.ShouldFailWith("boundarycontrol", "invalid architecture settings", "shared")
+	s.ShouldFailWith("gounslop", "invalid settings", "shared")
 }
 
 func (s *BoundarycontrolE2ESuite) TestExportsWrongTypeFailsClearly() {
@@ -49,7 +49,7 @@ func (s *BoundarycontrolE2ESuite) TestExportsWrongTypeFailsClearly() {
 		"func NewClient() {}",
 	)
 	s.LintFile("pkg/api/api.go")
-	s.ShouldFailWith("boundarycontrol", "invalid architecture settings", "exports")
+	s.ShouldFailWith("gounslop", "invalid settings", "exports")
 }
 
 func (s *BoundarycontrolE2ESuite) TestInvalidExportRegexFailsClearly() {

@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/skhoroshavin/gounslop/pkg/boundarycontrol"
@@ -12,68 +13,83 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// AnalyzerNames is the list of all analyzer names registered by the gounslop plugin.
+var AnalyzerNames = []string{
+	"boundarycontrol",
+	"nospecialunicode",
+	"nounicodeescape",
+	"readfriendlyorder",
+}
+
 func init() {
-	register.Plugin("boundarycontrol", newBoundarycontrolPlugin)
-	register.Plugin("nospecialunicode", newSyntaxPlugin(nospecialunicode.Analyzer))
-	register.Plugin("nounicodeescape", newSyntaxPlugin(nounicodeescape.Analyzer))
-	register.Plugin("readfriendlyorder", newTypesPlugin(readfriendlyorder.Analyzer))
+	register.Plugin("gounslop", newGounslopPlugin)
 }
 
-func newSyntaxPlugin(a *analysis.Analyzer) register.NewPlugin {
-	return func(_ any) (register.LinterPlugin, error) {
-		return &simplePlugin{analyzer: a, loadMode: register.LoadModeSyntax}, nil
-	}
-}
-
-func newTypesPlugin(a *analysis.Analyzer) register.NewPlugin {
-	return func(_ any) (register.LinterPlugin, error) {
-		return &simplePlugin{analyzer: a, loadMode: register.LoadModeTypesInfo}, nil
-	}
-}
-
-func newBoundarycontrolPlugin(conf any) (register.LinterPlugin, error) {
-	s, err := register.DecodeSettings[boundarycontrolSettings](conf)
+func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
+	s, err := register.DecodeSettings[gounslopSettings](conf)
 	if err != nil {
-		return nil, fmt.Errorf("boundarycontrol: invalid architecture settings: %w", err)
+		return nil, fmt.Errorf("gounslop: invalid settings: %w", err)
 	}
 
-	cfg, err := s.toConfig()
-	if err != nil {
-		return nil, err
+	for _, name := range s.Disable {
+		if !slices.Contains(AnalyzerNames, name) {
+			return nil, fmt.Errorf("gounslop: unknown analyzer %q in disable list", name)
+		}
 	}
 
-	if err := boundarycontrol.ValidateConfig(cfg); err != nil {
-		return nil, err
+	allAnalyzers := map[string]*analysis.Analyzer{
+		"boundarycontrol":   boundarycontrol.Analyzer,
+		"nospecialunicode":  nospecialunicode.Analyzer,
+		"nounicodeescape":   nounicodeescape.Analyzer,
+		"readfriendlyorder": readfriendlyorder.Analyzer,
 	}
 
-	architectureJSON, err := json.Marshal(cfg.Architecture)
-	if err != nil {
-		return nil, err
+	if !slices.Contains(s.Disable, "boundarycontrol") && s.Architecture != nil {
+		cfg, err := s.toConfig()
+		if err != nil {
+			return nil, err
+		}
+
+		if err := boundarycontrol.ValidateConfig(cfg); err != nil {
+			return nil, err
+		}
+
+		architectureJSON, err := json.Marshal(cfg.Architecture)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := allAnalyzers["boundarycontrol"].Flags.Set("architecture", string(architectureJSON)); err != nil {
+			return nil, err
+		}
 	}
 
-	a := boundarycontrol.Analyzer
-	if err := a.Flags.Set("architecture", string(architectureJSON)); err != nil {
-		return nil, err
+	var analyzers []*analysis.Analyzer
+	for _, name := range AnalyzerNames {
+		if slices.Contains(s.Disable, name) {
+			continue
+		}
+		analyzers = append(analyzers, allAnalyzers[name])
 	}
 
-	return &simplePlugin{analyzer: a, loadMode: register.LoadModeTypesInfo}, nil
+	return &gounslopPlugin{analyzers: analyzers}, nil
 }
 
-// simplePlugin wraps an analyzer into a golangci-lint LinterPlugin.
-type simplePlugin struct {
-	analyzer *analysis.Analyzer
-	loadMode string
+// gounslopPlugin wraps all gounslop analyzers into a single golangci-lint LinterPlugin.
+type gounslopPlugin struct {
+	analyzers []*analysis.Analyzer
 }
 
-func (p *simplePlugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
-	return []*analysis.Analyzer{p.analyzer}, nil
+func (p *gounslopPlugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
+	return p.analyzers, nil
 }
 
-func (p *simplePlugin) GetLoadMode() string {
-	return p.loadMode
+func (p *gounslopPlugin) GetLoadMode() string {
+	return register.LoadModeTypesInfo
 }
 
-type boundarycontrolSettings struct {
+type gounslopSettings struct {
+	Disable      []string                                 `json:"disable"`
 	Architecture map[string]boundarycontrolPolicySettings `json:"architecture"`
 }
 
@@ -84,7 +100,7 @@ type boundarycontrolPolicySettings struct {
 	Mode    *string  `json:"mode"`
 }
 
-func (s boundarycontrolSettings) toConfig() (boundarycontrol.Config, error) {
+func (s gounslopSettings) toConfig() (boundarycontrol.Config, error) {
 	cfg := boundarycontrol.Config{
 		Architecture: make(map[string]boundarycontrol.Policy, len(s.Architecture)),
 	}

@@ -11,10 +11,14 @@ type NounicodeescapeE2ESuite struct {
 	ruletest.Suite
 }
 
+func (s *NounicodeescapeE2ESuite) SetupTest() {
+	s.Suite.SetupTest()
+	s.EnableOnly = []string{"nounicodeescape"}
+	s.ModulePath = "example.com/mod"
+}
+
 func TestPluginE2E(t *testing.T) {
 	s := new(NounicodeescapeE2ESuite)
-	s.Linter = "nounicodeescape"
-	s.ModulePath = "example.com/mod"
 	suite.Run(t, s)
 }
 

@@ -11,10 +11,14 @@ type ReadfriendlyorderE2ESuite struct {
 	ruletest.Suite
 }
 
+func (s *ReadfriendlyorderE2ESuite) SetupTest() {
+	s.Suite.SetupTest()
+	s.EnableOnly = []string{"readfriendlyorder"}
+	s.ModulePath = "example.com/mod"
+}
+
 func TestPluginE2E(t *testing.T) {
 	s := new(ReadfriendlyorderE2ESuite)
-	s.Linter = "readfriendlyorder"
-	s.ModulePath = "example.com/mod"
 	suite.Run(t, s)
 }
 

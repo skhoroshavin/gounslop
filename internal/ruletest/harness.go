@@ -20,7 +20,7 @@ import (
 type Suite struct {
 	suite.Suite
 
-	Linter         string
+	EnableOnly     []string
 	ModulePath     string
 	GoVersion      string
 	WriteRootGoMod bool
@@ -43,6 +43,7 @@ type Result struct {
 }
 
 func (s *Suite) SetupTest() {
+	s.EnableOnly = nil
 	s.files = make(map[string]string)
 	s.settings = nil
 	s.workspace = ""
@@ -174,7 +175,7 @@ func (s *Suite) run(path string, fix bool) {
 	scenario := scenarioInput{
 		ModulePath:     s.ModulePath,
 		GoVersion:      s.GoVersion,
-		Linter:         s.Linter,
+		EnableOnly:     s.EnableOnly,
 		Files:          copyStringMap(s.files),
 		Settings:       copyAnyMap(s.settings),
 		WriteRootGoMod: s.WriteRootGoMod,
@@ -188,10 +189,10 @@ func (s *Suite) run(path string, fix bool) {
 
 	var result Result
 	if fix {
-		result = runCustomGCLFix(s.T(), workspace, s.Linter)
+		result = runCustomGCLFix(s.T(), workspace)
 		result.FixedFiles = readFixedFiles(s.T(), workspace, scenario.Files)
 	} else {
-		result = runCustomGCL(s.T(), workspace, s.Linter)
+		result = runCustomGCL(s.T(), workspace)
 	}
 
 	s.workspace = workspace
@@ -232,7 +233,7 @@ func newWorkspace(t testing.TB) string {
 	return workspace
 }
 
-func runCustomGCL(t testing.TB, workspace string, _ string) Result {
+func runCustomGCL(t testing.TB, workspace string) Result {
 	t.Helper()
 
 	release := acquireCustomGCLLock(t)
@@ -251,7 +252,7 @@ func runCustomGCL(t testing.TB, workspace string, _ string) Result {
 	return runCommand(t, cmd, workspace, "running custom-gcl")
 }
 
-func runCustomGCLFix(t testing.TB, workspace string, _ string) Result {
+func runCustomGCLFix(t testing.TB, workspace string) Result {
 	t.Helper()
 
 	release := acquireCustomGCLLock(t)
@@ -350,13 +351,11 @@ func acquireCustomGCLLock(t testing.TB) func() {
 func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 	t.Helper()
 
-	if scenario.Linter == "" {
-		t.Fatal("suite linter is required")
-	}
-
 	if len(scenario.Files) == 0 {
 		t.Fatal("at least one file is required")
 	}
+
+	validateEnableOnly(t, scenario.EnableOnly)
 
 	files := copyStringMap(scenario.Files)
 	if scenario.WriteRootGoMod {
@@ -385,6 +384,8 @@ func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 }
 
 func renderConfig(scenario scenarioInput) string {
+	const linterName = "gounslop"
+
 	type customLinter struct {
 		Type     string         `yaml:"type"`
 		Settings map[string]any `yaml:"settings,omitempty"`
@@ -404,15 +405,17 @@ func renderConfig(scenario scenarioInput) string {
 		Linters linters `yaml:"linters"`
 	}
 
+	settings := mergeSettings(scenario.EnableOnly, scenario.Settings)
+
 	cfg := config{
 		Version: "2",
 		Linters: linters{
-			Enable: []string{scenario.Linter},
+			Enable: []string{linterName},
 			Settings: lintersSettings{
 				Custom: map[string]customLinter{
-					scenario.Linter: {
+					linterName: {
 						Type:     "module",
-						Settings: scenario.Settings,
+						Settings: settings,
 					},
 				},
 			},
@@ -424,6 +427,56 @@ func renderConfig(scenario scenarioInput) string {
 		panic(fmt.Sprintf("rendering config: %v", err))
 	}
 	return string(out)
+}
+
+func mergeSettings(enableOnly []string, givenConfig map[string]any) map[string]any {
+	disable := disableComplement(enableOnly)
+
+	if len(disable) == 0 && len(givenConfig) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]any)
+	if len(disable) > 0 {
+		merged["disable"] = disable
+	}
+
+	for key, value := range givenConfig {
+		merged[key] = value
+	}
+
+	return merged
+}
+
+func disableComplement(enableOnly []string) []string {
+	if len(enableOnly) == 0 {
+		return nil
+	}
+
+	var disable []string
+	for _, name := range analyzerNames {
+		if !slices.Contains(enableOnly, name) {
+			disable = append(disable, name)
+		}
+	}
+	return disable
+}
+
+func validateEnableOnly(t testing.TB, enableOnly []string) {
+	t.Helper()
+
+	for _, name := range enableOnly {
+		if !slices.Contains(analyzerNames, name) {
+			t.Fatalf("EnableOnly contains unknown analyzer %q; known: %v", name, analyzerNames)
+		}
+	}
+}
+
+var analyzerNames = []string{
+	"boundarycontrol",
+	"nospecialunicode",
+	"nounicodeescape",
+	"readfriendlyorder",
 }
 
 func renderGoMod(scenario scenarioInput) string {
@@ -476,7 +529,7 @@ func renderGoWork(scenario scenarioInput, files map[string]string) string {
 type scenarioInput struct {
 	ModulePath     string
 	GoVersion      string
-	Linter         string
+	EnableOnly     []string
 	Files          map[string]string
 	Settings       map[string]any
 	WriteRootGoMod bool

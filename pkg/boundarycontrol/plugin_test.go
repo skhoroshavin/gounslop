@@ -13,7 +13,7 @@ type BoundarycontrolE2ESuite struct {
 
 func (s *BoundarycontrolE2ESuite) SetupTest() {
 	s.Suite.SetupTest()
-	s.Linter = "boundarycontrol"
+	s.EnableOnly = []string{"boundarycontrol"}
 	s.ModulePath = "example.com/mod"
 }
 

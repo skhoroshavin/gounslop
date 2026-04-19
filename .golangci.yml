@@ -5,7 +5,7 @@ run:
 
 linters:
   enable:
-    - boundarycontrol
+    - gounslop
     - errcheck
     - govet
     - ineffassign
@@ -13,19 +13,19 @@ linters:
     - unused
     - gocritic
     - dupl
-    - readfriendlyorder
   settings:
     custom:
-      boundarycontrol:
+      gounslop:
         type: "module"
         settings:
+          disable:
+            - nospecialunicode
+            - nounicodeescape
           architecture:
             plugin:
               imports: ["pkg/*"]
             pkg/*:
               imports: ["internal/*"]
-      readfriendlyorder:
-        type: "module"
 
 linters-settings:
   dupl:
