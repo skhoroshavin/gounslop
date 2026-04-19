@@ -49,7 +49,7 @@ Guidance for coding agents working in `gounslop`.
 
 ## Local Lint Guardrails
 
-- Self-linting uses `boundarycontrol`, `nodeepimports`, and `readfriendlyorder` from this repo via `.custom-gcl.yml`
+- Self-linting uses `boundarycontrol` and `readfriendlyorder` from this repo via `.custom-gcl.yml`
 - Standard linters enabled: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, `gocritic`, `dupl` (threshold: 100)
 - Formatters: `gofmt`, `goimports`
 
@@ -78,7 +78,7 @@ Guidance for coding agents working in `gounslop`.
 
 ## Naming Conventions
 
-- Analyzer packages use lowercase concatenated names: `nospecialunicode`, `nodeepimports`
+- Analyzer packages use lowercase concatenated names: `nospecialunicode`, `boundarycontrol`
 - Analyzer names match package names
 - Variables and functions use camelCase
 - Types use PascalCase
@@ -103,7 +103,7 @@ Guidance for coding agents working in `gounslop`.
 
 ## Error Handling and Resilience
 
-- Return `(nil, nil)` from `Run` when prerequisites are missing (e.g. empty `module-root` flag)
+- Return `(nil, nil)` from `Run` when prerequisites are intentionally absent; fail clearly when required module context cannot be discovered
 - Guard nullable values before dereferencing
 - Use `sync.Once` for expensive one-time computations across multiple package passes (see `nofalsesharing`)
 

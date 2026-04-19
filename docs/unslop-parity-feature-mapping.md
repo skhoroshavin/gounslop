@@ -32,7 +32,6 @@ It is intentionally planning-oriented:
 
 - `nospecialunicode`
 - `nounicodeescape`
-- `nodeepimports`
 - `nofalsesharing`
 - `readfriendlyorder`
 
@@ -43,7 +42,7 @@ It is intentionally planning-oriented:
 | `no-special-unicode` | Covered by `nospecialunicode` | Keep | Good parity, Go-native literal handling already exists |
 | `no-unicode-escape` | Covered by `nounicodeescape` | Keep | Good parity, no strong `golangci-lint` equivalent |
 | `read-friendly-order` | Covered by `readfriendlyorder` | Keep and spec | Go adaptation differs from TS by design |
-| `import-control` | Partially covered by `nodeepimports` | Add via unified architecture feature | Current Go rule is only the same-module deep-import slice |
+| `import-control` | Partially covered by `boundarycontrol` | Add via unified architecture feature | Current Go rule covers in-module boundaries and same-scope deep-import restrictions |
 | `no-whitebox-testing` | Missing | Drop as direct port | Go package model differs; closest ecosystem equivalent is `testpackage` |
 | `export-control` | Missing | Add via unified architecture feature | Needs Go-specific public-package/export contract model |
 | `no-false-sharing` | Partially covered by `nofalsesharing` | Migrate and expand | Current Go rule is package-level, upstream is symbol-level |
@@ -53,7 +52,7 @@ It is intentionally planning-oriented:
 
 - Keep the Go-specific analyzers already implemented.
 - Keep Go-native `readfriendlyorder` behavior such as `init()` placement and method ordering.
-- Preserve the useful part of `nodeepimports` even if it gets absorbed into a broader architecture feature.
+- Preserve the useful same-scope deep-import behavior now carried by `boundarycontrol`.
 
 ## Existing Ecosystem Overlap
 
@@ -78,7 +77,7 @@ Introduce a unified architecture capability around a new concept tentatively nam
 
 That capability should eventually cover:
 
-- same-domain deep import restrictions now handled by `nodeepimports`
+- same-domain deep import restrictions now handled by `boundarycontrol`
 - broader import boundary control
 - shared package declaration and false-sharing analysis
 - exported symbol contract checks for selected package groups
@@ -96,7 +95,6 @@ The upstream plugin has one shared architecture-policy model used by multiple ru
 
 Without unification, `gounslop` is likely to grow a pile of disconnected flags:
 
-- `nodeepimports`: `module-root`
 - `nofalsesharing`: `shared-dirs`, `mode`, `module-root`
 - future import control: unknown new flags
 - future export control: unknown new flags
@@ -120,7 +118,7 @@ module root
 
 This is easier to reason about than raw regex matching and maps better to several analyzers sharing one policy engine.
 
-## Naming Options For `nodeepimports` Evolution
+## Naming Options For Import-Control Evolution
 
 ### Recommended name
 
@@ -148,9 +146,9 @@ Use `boundarycontrol` for the current import-boundary rule.
 
 | Option | Description | Pros | Cons |
 | --- | --- | --- | --- |
-| A | Hard rename `nodeepimports` to `archcontrol` | Cleanest long-term UX | Breaking change immediately |
-| B | Add `archcontrol`, keep `nodeepimports` as compatibility alias temporarily | Easier migration | More code and docs during transition |
-| C | Keep `nodeepimports` and add separate analyzers with shared config | Smallest short-term change | Weak product story and fragmented UX |
+| A | Hard rename `boundarycontrol` to `archcontrol` | Cleanest long-term UX | Breaking change immediately |
+| B | Add `archcontrol` while keeping `boundarycontrol` as the focused import rule | Easier migration | More naming overlap during transition |
+| C | Keep `boundarycontrol` and add separate analyzers with shared config | Smallest short-term change | Weaker unified product story |
 
 ### Rename recommendation
 
@@ -309,7 +307,7 @@ Capabilities to specify:
 Why early:
 
 - clarifies what is contract versus implementation accident
-- reduces refactor ambiguity when `nodeepimports` and `nofalsesharing` are reorganized
+- reduces refactor ambiguity when architecture analyzers and `nofalsesharing` are reorganized
 
 Scope:
 
@@ -343,7 +341,7 @@ Key open decisions:
 
 - package selectors only, or selectors plus raw regex escape hatch
 - single umbrella analyzer versus multiple analyzers sharing the same schema
-- compatibility story for `nodeepimports` and `nofalsesharing`
+- compatibility story for `boundarycontrol` and `nofalsesharing`
 
 Recommended output:
 
@@ -363,7 +361,7 @@ Goal:
 Scope:
 
 - add the `archcontrol` concept to docs/specs
-- define whether `nodeepimports` remains as alias or deprecated wrapper
+- define whether `boundarycontrol` remains standalone or becomes a wrapper/alias under a broader architecture surface
 - define whether `nofalsesharing` remains standalone during migration
 
 Why separate:
@@ -388,7 +386,7 @@ Minimum target scope:
 
 Possible sub-slices if needed:
 
-- phase A: port `nodeepimports` semantics into `archcontrol`
+- phase A: port `boundarycontrol` semantics into `archcontrol`
 - phase B: add cross-selector import allowlists
 - phase C: add public-package-only import rules if adopted in schema
 
@@ -601,7 +599,7 @@ Prefer option B for OpenSpec even if the runtime config is unified.
 - Should unmatched packages be ignored or denied by default under the architecture model?
 - Should `archcontrol` keep both `file` and `dir` consumer grouping for false-sharing analysis?
 - Should export contracts apply to all matched packages or only explicitly public package groups?
-- How much compatibility should be preserved for `nodeepimports` and `nofalsesharing` names?
+- How much compatibility should be preserved for architecture-related analyzer names and `nofalsesharing`?
 - Is symbol-level false-sharing required before `archcontrol` is considered complete, or is it a follow-up enhancement?
 
 ## Short Recommendation
@@ -610,7 +608,7 @@ If only a few near-term changes should be proposed first, the highest-leverage s
 
 1. add the E2E harness
 2. define the shared `archcontrol` schema
-3. move `nodeepimports` into `archcontrol` and add real import-boundary control
+3. evolve `boundarycontrol` into `archcontrol` and add real import-boundary control
 4. migrate false-sharing config into `archcontrol`
 5. add export contracts
 6. add `no-single-use-constants`

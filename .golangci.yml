@@ -13,23 +13,17 @@ linters:
     - unused
     - gocritic
     - dupl
-    - nodeepimports
     - readfriendlyorder
   settings:
     custom:
       boundarycontrol:
         type: "module"
         settings:
-          module-root: "github.com/skhoroshavin/gounslop"
-          selectors:
-            - selector: "plugin"
+          architecture:
+            plugin:
               imports: ["pkg/*"]
-            - selector: "pkg/*"
+            pkg/*:
               imports: ["internal/*"]
-      nodeepimports:
-        type: "module"
-        settings:
-          module-root: "github.com/skhoroshavin/gounslop"
       readfriendlyorder:
         type: "module"
 

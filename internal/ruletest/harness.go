@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -19,9 +20,10 @@ import (
 type Suite struct {
 	suite.Suite
 
-	Linter     string
-	ModulePath string
-	GoVersion  string
+	Linter         string
+	ModulePath     string
+	GoVersion      string
+	WriteRootGoMod bool
 
 	files          map[string]string
 	settings       map[string]any
@@ -47,6 +49,7 @@ func (s *Suite) SetupTest() {
 	s.lastResult = nil
 	s.lastTargetPath = ""
 	s.codeCounter = 0
+	s.WriteRootGoMod = true
 }
 
 func (s *Suite) GivenConfig(settings map[string]any) {
@@ -169,11 +172,12 @@ func (s *Suite) run(path string, fix bool) {
 
 	workspace := newWorkspace(s.T())
 	scenario := scenarioInput{
-		ModulePath: s.ModulePath,
-		GoVersion:  s.GoVersion,
-		Linter:     s.Linter,
-		Files:      copyStringMap(s.files),
-		Settings:   copyAnyMap(s.settings),
+		ModulePath:     s.ModulePath,
+		GoVersion:      s.GoVersion,
+		Linter:         s.Linter,
+		Files:          copyStringMap(s.files),
+		Settings:       copyAnyMap(s.settings),
+		WriteRootGoMod: s.WriteRootGoMod,
 	}
 
 	writeWorkspace(s.T(), workspace, scenario)
@@ -239,7 +243,8 @@ func runCustomGCL(t testing.TB, workspace string, _ string) Result {
 		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
 	}
 
-	cmd := exec.Command(binaryPath, "run", "--default=none", "./...")
+	args := append([]string{"run", "--default=none"}, lintTargets(t, workspace)...)
+	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
@@ -257,7 +262,8 @@ func runCustomGCLFix(t testing.TB, workspace string, _ string) Result {
 		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
 	}
 
-	cmd := exec.Command(binaryPath, "run", "--default=none", "--fix", "./...")
+	args := append([]string{"run", "--default=none", "--fix"}, lintTargets(t, workspace)...)
+	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
@@ -353,8 +359,15 @@ func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 	}
 
 	files := copyStringMap(scenario.Files)
-	if _, ok := files["go.mod"]; !ok {
-		files["go.mod"] = renderGoMod(scenario)
+	if scenario.WriteRootGoMod {
+		if _, ok := files["go.mod"]; !ok {
+			files["go.mod"] = renderGoMod(scenario)
+		}
+	}
+	if shouldWriteGoWork(files) {
+		if _, ok := files["go.work"]; !ok {
+			files["go.work"] = renderGoWork(scenario, files)
+		}
 	}
 	if _, ok := files[".golangci.yml"]; !ok {
 		files[".golangci.yml"] = renderConfig(scenario)
@@ -427,12 +440,138 @@ func renderGoMod(scenario scenarioInput) string {
 	return fmt.Sprintf("module %s\n\ngo %s\n", modulePath, goVersion)
 }
 
+func shouldWriteGoWork(files map[string]string) bool {
+	dirs := moduleDirs(files)
+	if len(dirs) == 0 {
+		return false
+	}
+
+	return len(dirs) > 1 || dirs[0] != "."
+}
+
+func renderGoWork(scenario scenarioInput, files map[string]string) string {
+	goVersion := scenario.GoVersion
+	if goVersion == "" {
+		goVersion = "1.25.6"
+	}
+
+	dirs := moduleDirs(files)
+	var builder strings.Builder
+	_, _ = fmt.Fprintf(&builder, "go %s\n\nuse (\n", goVersion)
+	for _, dir := range dirs {
+		builder.WriteString("\t")
+		if dir == "." {
+			builder.WriteString(".")
+		} else {
+			builder.WriteString("./")
+			builder.WriteString(filepath.ToSlash(dir))
+		}
+		builder.WriteString("\n")
+	}
+	builder.WriteString(")\n")
+
+	return builder.String()
+}
+
 type scenarioInput struct {
-	ModulePath string
-	GoVersion  string
-	Linter     string
-	Files      map[string]string
-	Settings   map[string]any
+	ModulePath     string
+	GoVersion      string
+	Linter         string
+	Files          map[string]string
+	Settings       map[string]any
+	WriteRootGoMod bool
+}
+
+func lintTargets(t testing.TB, workspace string) []string {
+	t.Helper()
+
+	if _, err := os.Stat(filepath.Join(workspace, "go.mod")); err == nil {
+		return []string{"./..."}
+	}
+
+	dirs, err := moduleDirsInWorkspace(workspace)
+	if err != nil {
+		t.Fatalf("discovering module dirs: %v", err)
+	}
+	if len(dirs) == 0 {
+		return []string{"./..."}
+	}
+
+	targets := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		if dir == "." {
+			targets = append(targets, "./...")
+			continue
+		}
+
+		targets = append(targets, "./"+filepath.ToSlash(dir)+"/...")
+	}
+
+	return targets
+}
+
+func moduleDirs(files map[string]string) []string {
+	dirSet := make(map[string]struct{})
+	for path := range files {
+		if filepath.Base(path) != "go.mod" {
+			continue
+		}
+
+		dir := filepath.Dir(path)
+		if dir == "." {
+			dir = ""
+		}
+		dirSet[dir] = struct{}{}
+	}
+
+	if len(dirSet) == 0 {
+		return nil
+	}
+
+	dirs := make([]string, 0, len(dirSet))
+	for dir := range dirSet {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	for i, dir := range dirs {
+		if dir == "" {
+			dirs[i] = "."
+		}
+	}
+
+	return dirs
+}
+
+func moduleDirsInWorkspace(workspace string) ([]string, error) {
+	dirSet := make(map[string]struct{})
+	err := filepath.WalkDir(workspace, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || d.Name() != "go.mod" {
+			return nil
+		}
+
+		dir := filepath.Dir(path)
+		relDir, err := filepath.Rel(workspace, dir)
+		if err != nil {
+			return err
+		}
+		dirSet[relDir] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	dirs := make([]string, 0, len(dirSet))
+	for dir := range dirSet {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+
+	return dirs, nil
 }
 
 func normalizeOutput(output string, workspace string) string {

@@ -1,10 +1,6 @@
-## Purpose
+## MODIFIED Requirements
 
-Define the baseline architecture-control rules for limiting deep same-scope imports and enforcing boundarycontrol within the module discovered from the nearest `go.mod`.
-
-## Requirements
-
-### Requirement: Deep same-scope imports are limited within the discovered module scope
+### Requirement: Deep same-scope imports are limited within a configured module root
 For each analyzed package, the system SHALL discover the owning module from the nearest enclosing `go.mod` and evaluate imports whose paths stay inside that module. `boundarycontrol` SHALL subsume the same-scope deep-import behavior: if the importing package and imported package share the same first path segment beneath the discovered module path, the imported package SHALL be at most one level deeper than the importing package, except that an immediate child import SHALL always remain allowed regardless of configured boundary rules.
 
 #### Scenario: Import is too deep within the same top-level scope
@@ -75,6 +71,8 @@ For imports inside the discovered owning module, boundarycontrol SHALL forbid an
 - **WHEN** `feature` matches no configured key and imports `feature/api`
 - **THEN** the system allows that import
 
+## ADDED Requirements
+
 ### Requirement: Architecture-control discovers module scope from go.mod
 The system SHALL derive module scope for each analyzed package from the nearest enclosing `go.mod`. It SHALL parse that file's `module` directive to determine the owning module path and SHALL use that discovered module path for boundarycontrol matching and deep-import evaluation.
 
@@ -86,21 +84,8 @@ The system SHALL derive module scope for each analyzed package from the nearest 
 - **WHEN** an analyzed package has no enclosing `go.mod`
 - **THEN** the system reports a clear error that module scope could not be discovered from `go.mod`
 
-### Requirement: Boundarycontrol import selectors use non-recursive package matching
-Boundarycontrol `imports` selectors SHALL use non-recursive package matching. An exact selector such as `shared/contracts` SHALL match only that package. A child wildcard selector such as `shared/*` SHALL match only a direct child package. A self-or-child selector such as `shared/+` SHALL match the parent package and its direct child packages, but SHALL not match deeper descendants.
+## REMOVED Requirements
 
-#### Scenario: Exact import selector matches exact package only
-- **WHEN** `imports` contains `shared/contracts` and the imported package is `shared/contracts`
-- **THEN** the system allows that import
-
-#### Scenario: Exact import selector does not match child package
-- **WHEN** `imports` contains `shared/contracts` and the imported package is `shared/contracts/http`
-- **THEN** the system reports an undeclared boundarycontrol import violation
-
-#### Scenario: Child wildcard import selector matches direct child package only
-- **WHEN** `imports` contains `shared/*` and the imported package is `shared/contracts`
-- **THEN** the system allows that import
-
-#### Scenario: Self-or-child import selector matches parent and direct child only
-- **WHEN** `imports` contains `shared/+` and the imported package is `shared/contracts/http`
-- **THEN** the system reports an undeclared boundarycontrol import violation
+### Requirement: Architecture-control requires module-root
+**Reason**: Module scope is now derived automatically from the nearest enclosing `go.mod` instead of being configured manually.
+**Migration**: Remove `module-root` from `boundarycontrol` configuration and rely on `go.mod` discovery for module scoping.

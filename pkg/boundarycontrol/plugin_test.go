@@ -11,36 +11,24 @@ type BoundarycontrolE2ESuite struct {
 	ruletest.Suite
 }
 
-func TestPluginE2E(t *testing.T) {
-	s := new(BoundarycontrolE2ESuite)
+func (s *BoundarycontrolE2ESuite) SetupTest() {
+	s.Suite.SetupTest()
 	s.Linter = "boundarycontrol"
 	s.ModulePath = "example.com/mod"
-	suite.Run(t, s)
 }
 
-func (s *BoundarycontrolE2ESuite) TestMissingModuleRootFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"selectors": []map[string]any{{
-			"selector": "feature",
-			"imports":  []string{"shared/contracts"},
-		}},
-	})
-	s.GivenFile("feature/consumer.go",
-		"package feature",
-		"",
-		"func Use() {}",
-	)
-	s.LintFile("feature/consumer.go")
-	s.ShouldFailWith("boundarycontrol", "module-root is required")
+func TestPluginE2E(t *testing.T) {
+	s := new(BoundarycontrolE2ESuite)
+	suite.Run(t, s)
 }
 
 func (s *BoundarycontrolE2ESuite) TestInvalidKeySelectorFailsClearly() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/+",
-			"imports":  []string{"shared/contracts"},
-		}},
+		"architecture": map[string]any{
+			"feature/+": map[string]any{
+				"imports": []string{"shared/contracts"},
+			},
+		},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -53,11 +41,11 @@ func (s *BoundarycontrolE2ESuite) TestInvalidKeySelectorFailsClearly() {
 
 func (s *BoundarycontrolE2ESuite) TestExactKeyOwnsSubtree() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/api",
-			"imports":  []string{"shared/contracts"},
-		}},
+		"architecture": map[string]any{
+			"feature/api": map[string]any{
+				"imports": []string{"shared/contracts"},
+			},
+		},
 	})
 	s.GivenFile("feature/api/internal/consumer.go",
 		"package internal",
@@ -75,11 +63,11 @@ func (s *BoundarycontrolE2ESuite) TestExactKeyOwnsSubtree() {
 
 func (s *BoundarycontrolE2ESuite) TestWildcardKeyOwnsDirectChildSubtree() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/*",
-			"imports":  []string{"shared/contracts"},
-		}},
+		"architecture": map[string]any{
+			"feature/*": map[string]any{
+				"imports": []string{"shared/contracts"},
+			},
+		},
 	})
 	s.GivenFile("feature/payments/internal/consumer.go",
 		"package internal",
@@ -97,11 +85,11 @@ func (s *BoundarycontrolE2ESuite) TestWildcardKeyOwnsDirectChildSubtree() {
 
 func (s *BoundarycontrolE2ESuite) TestWildcardDoesNotOwnParentPackage() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/*",
-			"imports":  []string{"shared/contracts"},
-		}},
+		"architecture": map[string]any{
+			"feature/*": map[string]any{
+				"imports": []string{"shared/contracts"},
+			},
+		},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -119,15 +107,12 @@ func (s *BoundarycontrolE2ESuite) TestWildcardDoesNotOwnParentPackage() {
 
 func (s *BoundarycontrolE2ESuite) TestExactSelectorOverridesWildcardOwner() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{
-			{
-				"selector": "feature/*",
-				"imports":  []string{"shared/general"},
+		"architecture": map[string]any{
+			"feature/*": map[string]any{
+				"imports": []string{"shared/general"},
 			},
-			{
-				"selector": "feature/api",
-				"imports":  []string{"shared/contracts"},
+			"feature/api": map[string]any{
+				"imports": []string{"shared/contracts"},
 			},
 		},
 	})
@@ -147,15 +132,12 @@ func (s *BoundarycontrolE2ESuite) TestExactSelectorOverridesWildcardOwner() {
 
 func (s *BoundarycontrolE2ESuite) TestWildcardOverridesParentExactForChildSubtree() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{
-			{
-				"selector": "feature",
-				"imports":  []string{"shared/root"},
+		"architecture": map[string]any{
+			"feature": map[string]any{
+				"imports": []string{"shared/root"},
 			},
-			{
-				"selector": "feature/*",
-				"imports":  []string{"shared/contracts"},
+			"feature/*": map[string]any{
+				"imports": []string{"shared/contracts"},
 			},
 		},
 	})
@@ -173,41 +155,13 @@ func (s *BoundarycontrolE2ESuite) TestWildcardOverridesParentExactForChildSubtre
 	s.ShouldPass()
 }
 
-func (s *BoundarycontrolE2ESuite) TestDeclarationOrderBreaksTie() {
-	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{
-			{
-				"selector": "feature/*",
-				"imports":  []string{"shared/first"},
-			},
-			{
-				"selector": "feature/*",
-				"imports":  []string{"shared/second"},
-			},
-		},
-	})
-	s.GivenFile("feature/payments/consumer.go",
-		"package payments",
-		"",
-		"import _ \"example.com/mod/shared/first\"",
-	)
-	s.GivenFile("shared/first/first.go",
-		"package first",
-		"",
-		"var X = 1",
-	)
-	s.LintFile("feature/payments/consumer.go")
-	s.ShouldPass()
-}
-
 func (s *BoundarycontrolE2ESuite) TestUnmatchedImporterHasEmptyImportList() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "shared",
-			"imports":  []string{"."},
-		}},
+		"architecture": map[string]any{
+			"shared": map[string]any{
+				"imports": []string{"."},
+			},
+		},
 	})
 	s.GivenFile("unknown/feature/consumer.go",
 		"package feature",
@@ -225,11 +179,11 @@ func (s *BoundarycontrolE2ESuite) TestUnmatchedImporterHasEmptyImportList() {
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorExactMatchesOnlyExactPackage() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/api",
-			"imports":  []string{"shared/contracts"},
-		}},
+		"architecture": map[string]any{
+			"feature/api": map[string]any{
+				"imports": []string{"shared/contracts"},
+			},
+		},
 	})
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
@@ -247,11 +201,11 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorExactMatchesOnlyExactPackage
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorChildWildcardMatchesDirectChildOnly() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/api",
-			"imports":  []string{"shared/*"},
-		}},
+		"architecture": map[string]any{
+			"feature/api": map[string]any{
+				"imports": []string{"shared/*"},
+			},
+		},
 	})
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
@@ -269,11 +223,11 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorChildWildcardMatchesDirectCh
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorSelfOrChildMatchesParentAndDirectChildOnly() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature/api",
-			"imports":  []string{"shared/+"},
-		}},
+		"architecture": map[string]any{
+			"feature/api": map[string]any{
+				"imports": []string{"shared/+"},
+			},
+		},
 	})
 	s.GivenFile("feature/api/consumer.go",
 		"package api",
@@ -291,11 +245,11 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorSelfOrChildMatchesParentAndD
 
 func (s *BoundarycontrolE2ESuite) TestIntegratedDeepImportStillFailsWithinSameScope() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{{
-			"selector": "feature",
-			"imports":  []string{"feature/child/deep"},
-		}},
+		"architecture": map[string]any{
+			"feature": map[string]any{
+				"imports": []string{"feature/child/deep"},
+			},
+		},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -313,8 +267,7 @@ func (s *BoundarycontrolE2ESuite) TestIntegratedDeepImportStillFailsWithinSameSc
 
 func (s *BoundarycontrolE2ESuite) TestImmediateChildImportRemainsAllowedWithoutPolicy() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors":   []map[string]any{},
+		"architecture": map[string]any{},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -332,8 +285,7 @@ func (s *BoundarycontrolE2ESuite) TestImmediateChildImportRemainsAllowedWithoutP
 
 func (s *BoundarycontrolE2ESuite) TestExternalImportIsIgnored() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors":   []map[string]any{},
+		"architecture": map[string]any{},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -346,11 +298,9 @@ func (s *BoundarycontrolE2ESuite) TestExternalImportIsIgnored() {
 
 func (s *BoundarycontrolE2ESuite) TestDifferentTopLevelImportStillUsesBoundarycontrol() {
 	s.GivenConfig(map[string]any{
-		"module-root": "example.com/mod",
-		"selectors": []map[string]any{
-			{
-				"selector": "featurea",
-				"imports":  []string{"shared/+"},
+		"architecture": map[string]any{
+			"featurea": map[string]any{
+				"imports": []string{"shared/+"},
 			},
 		},
 	})
@@ -366,4 +316,60 @@ func (s *BoundarycontrolE2ESuite) TestDifferentTopLevelImportStillUsesBoundaryco
 	)
 	s.LintFile("featurea/consumer.go")
 	s.ShouldFailWith("undeclared boundarycontrol import")
+}
+
+func (s *BoundarycontrolE2ESuite) TestNearestGoModDefinesModuleScope() {
+	s.WriteRootGoMod = false
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"internal/*": map[string]any{
+				"imports": []string{"pkg/contracts"},
+			},
+		},
+	})
+	s.GivenFile("tools/go.mod",
+		"module example.com/root/tools",
+		"",
+		"go 1.25.6",
+	)
+	s.GivenFile("tools/internal/checker/checker.go",
+		"package checker",
+		"",
+		"import _ \"example.com/root/tools/pkg/contracts\"",
+	)
+	s.GivenFile("tools/pkg/contracts/contracts.go",
+		"package contracts",
+		"",
+		"var X = 1",
+	)
+	s.LintFile("tools/internal/checker/checker.go")
+	s.ShouldPass()
+}
+
+func (s *BoundarycontrolE2ESuite) TestNestedModuleImportIsIgnoredForParentModule() {
+	s.ModulePath = "example.com/root"
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{
+			"feature": map[string]any{
+				"imports": []string{},
+			},
+		},
+	})
+	s.GivenFile("feature/consumer.go",
+		"package feature",
+		"",
+		"import _ \"example.com/root/tools/pkg\"",
+	)
+	s.GivenFile("tools/go.mod",
+		"module example.com/root/tools",
+		"",
+		"go 1.25.6",
+	)
+	s.GivenFile("tools/pkg/pkg.go",
+		"package pkg",
+		"",
+		"var X = 1",
+	)
+	s.LintFile("feature/consumer.go")
+	s.ShouldPass()
 }

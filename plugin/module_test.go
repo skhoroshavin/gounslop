@@ -9,7 +9,6 @@ import (
 func TestPluginsRegistered(t *testing.T) {
 	for _, name := range []string{
 		"boundarycontrol",
-		"nodeepimports",
 		"nofalsesharing",
 		"nospecialunicode",
 		"nounicodeescape",

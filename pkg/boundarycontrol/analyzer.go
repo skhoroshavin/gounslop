@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,45 +15,26 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "boundarycontrol",
-	Doc:      "enforce package import boundaries within a configured module root",
+	Doc:      "enforce package import boundaries within the discovered Go module",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
 
 type Config struct {
-	ModuleRoot string           `json:"module-root"`
-	Selectors  []SelectorPolicy `json:"selectors"`
+	Architecture map[string]Policy `json:"architecture"`
 }
 
-type SelectorPolicy struct {
-	Selector string   `json:"selector"`
-	Imports  []string `json:"imports"`
+type Policy struct {
+	Imports []string `json:"imports"`
 }
 
 func init() {
-	Analyzer.Flags.StringVar(&moduleRootFlag, "module-root", "", "Go module path prefix (e.g. github.com/org/repo)")
-	Analyzer.Flags.StringVar(&selectorsFlag, "selectors", "[]", "JSON-encoded boundarycontrol selectors")
+	Analyzer.Flags.StringVar(&architectureFlag, "architecture", "{}", "JSON-encoded boundarycontrol architecture")
 }
 
 func ValidateConfig(cfg Config) error {
-	cfg = normalizeConfig(cfg)
-	if cfg.ModuleRoot == "" {
-		return fmt.Errorf("boundarycontrol: module-root is required")
-	}
-
-	for i, policy := range cfg.Selectors {
-		if _, err := parseKeySelector(policy.Selector); err != nil {
-			return fmt.Errorf("boundarycontrol: selectors[%d].selector: %w", i, err)
-		}
-
-		for j, selector := range policy.Imports {
-			if _, err := parseImportSelector(selector); err != nil {
-				return fmt.Errorf("boundarycontrol: selectors[%d].imports[%d]: %w", i, j, err)
-			}
-		}
-	}
-
-	return nil
+	_, err := compileConfig(normalizeConfig(cfg))
+	return err
 }
 
 func run(pass *analysis.Pass) (any, error) {
@@ -61,9 +43,14 @@ func run(pass *analysis.Pass) (any, error) {
 		return nil, err
 	}
 
-	importerRel, ok := relativeModulePath(pass.Pkg.Path(), cfg.ModuleRoot)
+	moduleCtx, err := discoverModuleContext(pass)
+	if err != nil {
+		return nil, err
+	}
+
+	importerRel, ok := relativeModulePath(pass.Pkg.Path(), moduleCtx.path)
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("boundarycontrol: package %q is outside discovered module %q", pass.Pkg.Path(), moduleCtx.path)
 	}
 
 	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
@@ -76,8 +63,8 @@ func run(pass *analysis.Pass) (any, error) {
 			return
 		}
 
-		importedRel, ok := relativeModulePath(importPath, cfg.ModuleRoot)
-		if !ok {
+		importedRel, ownership := classifyImportPath(importPath, moduleCtx)
+		if ownership != importOwnershipCurrentModule {
 			return
 		}
 
@@ -90,8 +77,8 @@ func run(pass *analysis.Pass) (any, error) {
 			return
 		}
 
-		owner, found := resolveOwner(cfg.Selectors, importerRel)
-		if found && matchesImportSelectors(owner.Imports, importedRel) {
+		owner, found := resolveOwner(cfg.policies, importerRel)
+		if found && matchesImportSelectors(owner.imports, importedRel) {
 			return
 		}
 
@@ -101,53 +88,90 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func configFromFlags() (Config, error) {
-	cfg := Config{ModuleRoot: moduleRootFlag}
-	if selectorsFlag != "" {
-		if err := json.Unmarshal([]byte(selectorsFlag), &cfg.Selectors); err != nil {
-			return Config{}, fmt.Errorf("boundarycontrol: invalid selectors setting: %w", err)
+func configFromFlags() (compiledConfig, error) {
+	var cfg Config
+	if architectureFlag != "" {
+		if err := json.Unmarshal([]byte(architectureFlag), &cfg.Architecture); err != nil {
+			return compiledConfig{}, fmt.Errorf("boundarycontrol: invalid architecture setting: %w", err)
 		}
 	}
 
-	cfg = normalizeConfig(cfg)
-	if err := ValidateConfig(cfg); err != nil {
-		return Config{}, err
+	compiled, err := compileConfig(normalizeConfig(cfg))
+	if err != nil {
+		return compiledConfig{}, err
 	}
 
-	return cfg, nil
+	return compiled, nil
+
 }
 
-var (
-	moduleRootFlag string
-	selectorsFlag  string
-)
+var architectureFlag string
+
+func compileConfig(cfg Config) (compiledConfig, error) {
+	selectors := make([]string, 0, len(cfg.Architecture))
+	for selector := range cfg.Architecture {
+		selectors = append(selectors, selector)
+	}
+	sort.Strings(selectors)
+
+	policies := make([]compiledPolicy, 0, len(selectors))
+	for _, selector := range selectors {
+		parsedKey, err := parseKeySelector(selector)
+		if err != nil {
+			return compiledConfig{}, fmt.Errorf("boundarycontrol: architecture[%q]: %w", selector, err)
+		}
+
+		imports := cfg.Architecture[selector].Imports
+		parsedImports := make([]parsedSelector, 0, len(imports))
+		for i, importSelector := range imports {
+			parsedImport, err := parseImportSelector(importSelector)
+			if err != nil {
+				return compiledConfig{}, fmt.Errorf("boundarycontrol: architecture[%q].imports[%d]: %w", selector, i, err)
+			}
+
+			parsedImports = append(parsedImports, parsedImport)
+		}
+
+		policies = append(policies, compiledPolicy{
+			selector: parsedKey,
+			imports:  parsedImports,
+		})
+	}
+
+	return compiledConfig{policies: policies}, nil
+}
 
 func normalizeConfig(cfg Config) Config {
-	cfg.ModuleRoot = strings.TrimRight(strings.TrimSpace(cfg.ModuleRoot), "/")
-	if cfg.Selectors == nil {
-		cfg.Selectors = []SelectorPolicy{}
+	if cfg.Architecture == nil {
+		cfg.Architecture = map[string]Policy{}
+		return cfg
 	}
 
-	for i := range cfg.Selectors {
-		cfg.Selectors[i].Selector = strings.TrimSpace(cfg.Selectors[i].Selector)
-		if cfg.Selectors[i].Imports == nil {
-			cfg.Selectors[i].Imports = []string{}
+	normalized := make(map[string]Policy, len(cfg.Architecture))
+	for selector, policy := range cfg.Architecture {
+		normalizedSelector := strings.TrimSpace(selector)
+		imports := append([]string(nil), policy.Imports...)
+		if imports == nil {
+			imports = []string{}
 		}
 
-		for j := range cfg.Selectors[i].Imports {
-			cfg.Selectors[i].Imports[j] = strings.TrimSpace(cfg.Selectors[i].Imports[j])
+		for i := range imports {
+			imports[i] = strings.TrimSpace(imports[i])
 		}
+
+		normalized[normalizedSelector] = Policy{Imports: imports}
 	}
 
+	cfg.Architecture = normalized
 	return cfg
 }
 
-func relativeModulePath(pkgPath, moduleRoot string) (string, bool) {
-	if pkgPath == moduleRoot {
+func relativeModulePath(pkgPath, modulePath string) (string, bool) {
+	if pkgPath == modulePath {
 		return "", true
 	}
 
-	prefix := moduleRoot + "/"
+	prefix := modulePath + "/"
 	if !strings.HasPrefix(pkgPath, prefix) {
 		return "", false
 	}
@@ -184,18 +208,17 @@ func isImmediateChildImport(importerRel, importedRel string) bool {
 	return segmentCount(strings.TrimPrefix(importedRel, prefix)) == 1
 }
 
-func resolveOwner(policies []SelectorPolicy, importerRel string) (SelectorPolicy, bool) {
-	var best SelectorPolicy
+func resolveOwner(policies []compiledPolicy, importerRel string) (compiledPolicy, bool) {
+	var best compiledPolicy
 	var bestCandidate ownerCandidate
 	found := false
 
-	for i, policy := range policies {
-		candidate, ok := ownerCandidateFor(policy.Selector, importerRel)
+	for _, policy := range policies {
+		candidate, ok := ownerCandidateFor(policy.selector, importerRel)
 		if !ok {
 			continue
 		}
 
-		candidate.index = i
 		if !found || betterOwner(candidate, bestCandidate) {
 			best = policy
 			bestCandidate = candidate
@@ -206,13 +229,17 @@ func resolveOwner(policies []SelectorPolicy, importerRel string) (SelectorPolicy
 	return best, found
 }
 
-func ownerCandidateFor(selector, importerRel string) (ownerCandidate, bool) {
-	parsed, err := parseKeySelector(selector)
-	if err != nil {
-		return ownerCandidate{}, false
-	}
+type compiledConfig struct {
+	policies []compiledPolicy
+}
 
-	switch parsed.kind {
+type compiledPolicy struct {
+	selector parsedSelector
+	imports  []parsedSelector
+}
+
+func ownerCandidateFor(selector parsedSelector, importerRel string) (ownerCandidate, bool) {
+	switch selector.kind {
 	case selectorKindRoot:
 		if importerRel != "" {
 			return ownerCandidate{}, false
@@ -220,16 +247,16 @@ func ownerCandidateFor(selector, importerRel string) (ownerCandidate, bool) {
 
 		return ownerCandidate{ownerDepth: 0}, true
 	case selectorKindExact:
-		if importerRel != parsed.base && !strings.HasPrefix(importerRel, parsed.base+"/") {
+		if importerRel != selector.base && !strings.HasPrefix(importerRel, selector.base+"/") {
 			return ownerCandidate{}, false
 		}
 
 		return ownerCandidate{
-			ownerDepth:      parsed.depth,
-			selectorPathLen: parsed.depth,
+			ownerDepth:      selector.depth,
+			selectorPathLen: selector.depth,
 		}, true
 	case selectorKindChildWildcard:
-		prefix := parsed.base + "/"
+		prefix := selector.base + "/"
 		if !strings.HasPrefix(importerRel, prefix) {
 			return ownerCandidate{}, false
 		}
@@ -240,9 +267,9 @@ func ownerCandidateFor(selector, importerRel string) (ownerCandidate, bool) {
 		}
 
 		return ownerCandidate{
-			ownerDepth:      parsed.depth + 1,
+			ownerDepth:      selector.depth + 1,
 			wildcard:        true,
-			selectorPathLen: parsed.depth,
+			selectorPathLen: selector.depth,
 		}, true
 	default:
 		return ownerCandidate{}, false
@@ -258,21 +285,16 @@ func betterOwner(candidate, current ownerCandidate) bool {
 		return !candidate.wildcard
 	}
 
-	if candidate.selectorPathLen != current.selectorPathLen {
-		return candidate.selectorPathLen > current.selectorPathLen
-	}
-
-	return candidate.index < current.index
+	return candidate.selectorPathLen > current.selectorPathLen
 }
 
 type ownerCandidate struct {
 	ownerDepth      int
 	wildcard        bool
 	selectorPathLen int
-	index           int
 }
 
-func matchesImportSelectors(selectors []string, importedRel string) bool {
+func matchesImportSelectors(selectors []parsedSelector, importedRel string) bool {
 	for _, selector := range selectors {
 		if matchesImportSelector(selector, importedRel) {
 			return true
@@ -282,19 +304,14 @@ func matchesImportSelectors(selectors []string, importedRel string) bool {
 	return false
 }
 
-func matchesImportSelector(selector, importedRel string) bool {
-	parsed, err := parseImportSelector(selector)
-	if err != nil {
-		return false
-	}
-
-	switch parsed.kind {
+func matchesImportSelector(selector parsedSelector, importedRel string) bool {
+	switch selector.kind {
 	case selectorKindRoot:
 		return importedRel == ""
 	case selectorKindExact:
-		return importedRel == parsed.base
+		return importedRel == selector.base
 	case selectorKindChildWildcard:
-		prefix := parsed.base + "/"
+		prefix := selector.base + "/"
 		if !strings.HasPrefix(importedRel, prefix) {
 			return false
 		}
@@ -302,11 +319,11 @@ func matchesImportSelector(selector, importedRel string) bool {
 		remainder := strings.TrimPrefix(importedRel, prefix)
 		return remainder != "" && !strings.Contains(remainder, "/")
 	case selectorKindSelfOrChild:
-		if importedRel == parsed.base {
+		if importedRel == selector.base {
 			return true
 		}
 
-		prefix := parsed.base + "/"
+		prefix := selector.base + "/"
 		if !strings.HasPrefix(importedRel, prefix) {
 			return false
 		}

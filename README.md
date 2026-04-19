@@ -50,7 +50,6 @@ The remaining analyzers need explicit configuration:
 linters:
   enable:
     - boundarycontrol
-    - nodeepimports
     - nofalsesharing
     - readfriendlyorder
   settings:
@@ -58,16 +57,11 @@ linters:
       boundarycontrol:
         type: "module"
         settings:
-          module-root: "github.com/your-org/your-repo"
-          selectors:
-            - selector: "."
+          architecture:
+            ".":
               imports: ["pkg/+", "internal/*"]
-            - selector: "pkg/repository/*"
+            "pkg/repository/*":
               imports: ["pkg/models/+", "pkg/utils"]
-      nodeepimports:
-        type: "module"
-        settings:
-          module-root: "github.com/your-org/your-repo"
       nofalsesharing:
         type: "module"
         settings:
@@ -111,49 +105,20 @@ copyright := "© 2025"
 arrow := "→"
 ```
 
-### `nodeepimports`
-
-Forbids importing more than one level deeper than the current package within the same top-level folder. If `pkg/auth/login` imports from `pkg/auth/validators/internal/format`, that's reaching too deep into implementation details. This analyzer nudges you toward flatter structures and proper module boundaries.
-
-Only triggers for imports within the same top-level folder. External packages and imports into other top-level folders are ignored.
-
-#### Settings
-
-| Setting       | Type     | Required | Description                                          |
-| ------------- | -------- | -------- | ---------------------------------------------------- |
-| `module-root` | `string` | yes      | Go module path prefix (e.g. `github.com/org/repo`)  |
-
-#### Examples
-
-Given a module with `module-root: "github.com/org/repo"`:
-
-```go
-// Package: github.com/org/repo/pkg/auth
-
-// OK — one level deep, same folder
-import "github.com/org/repo/pkg/auth/validators"
-
-// Bad — two levels deep into same top-level folder
-import "github.com/org/repo/pkg/auth/validators/internal"
-```
-
 ### `boundarycontrol`
 
-Enforces selector-based package import boundaries inside a configured module root. `boundarycontrol` is the new import-boundary rule: it controls which in-module packages may import which other in-module packages, ignores standard-library and third-party imports outside your module root, and also subsumes the same-scope deep-import behavior currently provided by `nodeepimports`.
-
-`nodeepimports` still exists in this release. Keeping both enabled is allowed during migration, but they can report overlapping same-scope deep-import diagnostics.
+Enforces selector-based package import boundaries inside the nearest enclosing Go module. `boundarycontrol` auto-discovers module scope from `go.mod`, ignores standard-library and third-party imports outside that module, excludes nested-module imports owned by a deeper `go.mod`, and also enforces same-scope deep-import restrictions.
 
 #### Settings
 
-| Setting       | Type       | Required | Description |
-| ------------- | ---------- | -------- | ----------- |
-| `module-root` | `string`   | yes      | Go module path prefix (e.g. `github.com/org/repo`) |
-| `selectors`   | `[]object` | yes      | Ordered selector policies. Earlier entries win remaining precedence ties |
+| Setting | Type | Required | Description |
+| ------- | ---- | -------- | ----------- |
+| `architecture` | `map[string]object` | yes | Import policy keyed by package selector |
 
-Each selector entry has this shape:
+Each architecture entry has this shape:
 
 ```yaml
-- selector: "pkg/repository/*"
+"pkg/repository/*":
   imports: ["pkg/models/+", "pkg/utils"]
 ```
 
@@ -184,13 +149,12 @@ linters:
       boundarycontrol:
         type: "module"
         settings:
-          module-root: "github.com/org/repo"
-          selectors:
-            - selector: "."
+          architecture:
+            ".":
               imports: ["pkg/+", "internal/*"]
-            - selector: "pkg/api"
+            "pkg/api":
               imports: ["pkg/contracts", "pkg/shared/+", "internal/http/*"]
-            - selector: "pkg/repository/*"
+            "pkg/repository/*":
               imports: ["pkg/models/+", "pkg/utils"]
 ```
 
@@ -198,7 +162,8 @@ Notes:
 
 - Unmatched in-module packages behave as `imports: []`.
 - Imports from a package to its immediate child package stay allowed even without an explicit rule.
-- Same-scope deep imports that would already be rejected by `nodeepimports` are also rejected by `boundarycontrol`.
+- Same-scope deep imports are rejected directly by `boundarycontrol`.
+- Module scope comes from the nearest enclosing `go.mod`; nested modules are treated as out of scope for the parent module.
 
 ### `nofalsesharing`
 
