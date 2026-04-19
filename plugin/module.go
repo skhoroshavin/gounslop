@@ -2,10 +2,10 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/skhoroshavin/gounslop/pkg/boundarycontrol"
-	"github.com/skhoroshavin/gounslop/pkg/nofalsesharing"
 	"github.com/skhoroshavin/gounslop/pkg/nospecialunicode"
 	"github.com/skhoroshavin/gounslop/pkg/nounicodeescape"
 	"github.com/skhoroshavin/gounslop/pkg/readfriendlyorder"
@@ -16,7 +16,6 @@ func init() {
 	register.Plugin("boundarycontrol", newBoundarycontrolPlugin)
 	register.Plugin("nospecialunicode", newSyntaxPlugin(nospecialunicode.Analyzer))
 	register.Plugin("nounicodeescape", newSyntaxPlugin(nounicodeescape.Analyzer))
-	register.Plugin("nofalsesharing", newNofalsesharingPlugin)
 	register.Plugin("readfriendlyorder", newTypesPlugin(readfriendlyorder.Analyzer))
 }
 
@@ -35,16 +34,12 @@ func newTypesPlugin(a *analysis.Analyzer) register.NewPlugin {
 func newBoundarycontrolPlugin(conf any) (register.LinterPlugin, error) {
 	s, err := register.DecodeSettings[boundarycontrolSettings](conf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("boundarycontrol: invalid architecture settings: %w", err)
 	}
 
-	cfg := boundarycontrol.Config{
-		Architecture: make(map[string]boundarycontrol.Policy, len(s.Architecture)),
-	}
-	for selector, policy := range s.Architecture {
-		cfg.Architecture[selector] = boundarycontrol.Policy{
-			Imports: append([]string(nil), policy.Imports...),
-		}
+	cfg, err := s.toConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	if err := boundarycontrol.ValidateConfig(cfg); err != nil {
@@ -61,26 +56,6 @@ func newBoundarycontrolPlugin(conf any) (register.LinterPlugin, error) {
 		return nil, err
 	}
 
-	return &simplePlugin{analyzer: a, loadMode: register.LoadModeTypesInfo}, nil
-}
-
-func newNofalsesharingPlugin(conf any) (register.LinterPlugin, error) {
-	s, err := register.DecodeSettings[nofalsesharingSettings](conf)
-	if err != nil {
-		return nil, err
-	}
-	a := nofalsesharing.Analyzer
-	for name, val := range map[string]string{
-		"shared-dirs": s.SharedDirs,
-		"mode":        s.Mode,
-		"module-root": s.ModuleRoot,
-	} {
-		if val != "" {
-			if err := a.Flags.Set(name, val); err != nil {
-				return nil, err
-			}
-		}
-	}
 	return &simplePlugin{analyzer: a, loadMode: register.LoadModeTypesInfo}, nil
 }
 
@@ -104,10 +79,28 @@ type boundarycontrolSettings struct {
 
 type boundarycontrolPolicySettings struct {
 	Imports []string `json:"imports"`
+	Shared  bool     `json:"shared"`
+	Mode    *string  `json:"mode"`
 }
 
-type nofalsesharingSettings struct {
-	SharedDirs string `json:"shared-dirs"`
-	Mode       string `json:"mode"`
-	ModuleRoot string `json:"module-root"`
+func (s boundarycontrolSettings) toConfig() (boundarycontrol.Config, error) {
+	cfg := boundarycontrol.Config{
+		Architecture: make(map[string]boundarycontrol.Policy, len(s.Architecture)),
+	}
+
+	for selector, policy := range s.Architecture {
+		if policy.Mode != nil {
+			return boundarycontrol.Config{}, fmt.Errorf(
+				"boundarycontrol: architecture[%q].mode is unsupported; migrated false-sharing counts consumers by importing package path only",
+				selector,
+			)
+		}
+
+		cfg.Architecture[selector] = boundarycontrol.Policy{
+			Imports: append([]string(nil), policy.Imports...),
+			Shared:  policy.Shared,
+		}
+	}
+
+	return cfg, nil
 }

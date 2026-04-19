@@ -30,9 +30,9 @@ It is intentionally planning-oriented:
 
 `gounslop` currently ships these analyzers:
 
+- `boundarycontrol`
 - `nospecialunicode`
 - `nounicodeescape`
-- `nofalsesharing`
 - `readfriendlyorder`
 
 ### High-level parity summary
@@ -45,7 +45,7 @@ It is intentionally planning-oriented:
 | `import-control` | Partially covered by `boundarycontrol` | Add via unified architecture feature | Current Go rule covers in-module boundaries and same-scope deep-import restrictions |
 | `no-whitebox-testing` | Missing | Drop as direct port | Go package model differs; closest ecosystem equivalent is `testpackage` |
 | `export-control` | Missing | Add via unified architecture feature | Needs Go-specific public-package/export contract model |
-| `no-false-sharing` | Partially covered by `nofalsesharing` | Migrate and expand | Current Go rule is package-level, upstream is symbol-level |
+| `no-false-sharing` | Partially covered by `boundarycontrol` | Migrate and expand | Current Go rule is package-level, upstream is symbol-level |
 | `no-single-use-constants` | Missing | Add as separate analyzer | Existing Go linters only partially overlap |
 
 ### Existing Go-specific value to preserve
@@ -95,7 +95,7 @@ The upstream plugin has one shared architecture-policy model used by multiple ru
 
 Without unification, `gounslop` is likely to grow a pile of disconnected flags:
 
-- `nofalsesharing`: `shared-dirs`, `mode`, `module-root`
+- `boundarycontrol`: selector-owned `imports` and `shared` policy
 - future import control: unknown new flags
 - future export control: unknown new flags
 
@@ -167,7 +167,6 @@ The shared architecture config should describe:
 - allowed imports between selectors
 - shared package selectors
 - export naming contracts for selected packages
-- false-sharing consumer grouping mode where needed
 
 ### Go-native concepts to use
 
@@ -190,18 +189,14 @@ This is not a final proposal, just a directionally useful shape:
 
 ```yaml
 architecture:
-  module-root: github.com/your-org/your-repo
-  selectors:
-    ".":
-      imports: ["*"]
-    "pkg/models":
-      imports: ["pkg/utils"]
-    "pkg/repository/*":
-      imports: ["pkg/models/+", "pkg/utils"]
-      exports: ["^New.+$", "^.+Repository$"]
-    "pkg/shared":
-      shared: true
-      consumer-mode: dir
+  ".":
+    imports: ["pkg/+", "internal/*", "pkg/shared"]
+  "pkg/models":
+    imports: ["pkg/utils"]
+  "pkg/repository/*":
+    imports: ["pkg/models/+", "pkg/utils"]
+  "pkg/shared":
+    shared: true
 ```
 
 ### Selector direction
@@ -307,7 +302,7 @@ Capabilities to specify:
 Why early:
 
 - clarifies what is contract versus implementation accident
-- reduces refactor ambiguity when architecture analyzers and `nofalsesharing` are reorganized
+- reduces refactor ambiguity when boundary-related analyzers are reorganized
 
 Scope:
 
@@ -333,7 +328,7 @@ Scope:
 
 - choose selector model
 - choose config placement and naming
-- choose consumer grouping config shape
+- choose how package-level false-sharing fits the shared config
 - decide whether public-package semantics are part of v1
 - document migration path from current flags
 
@@ -341,7 +336,7 @@ Key open decisions:
 
 - package selectors only, or selectors plus raw regex escape hatch
 - single umbrella analyzer versus multiple analyzers sharing the same schema
-- compatibility story for `boundarycontrol` and `nofalsesharing`
+- compatibility story for `boundarycontrol` and future `archcontrol` naming
 
 Recommended output:
 
@@ -362,7 +357,7 @@ Scope:
 
 - add the `archcontrol` concept to docs/specs
 - define whether `boundarycontrol` remains standalone or becomes a wrapper/alias under a broader architecture surface
-- define whether `nofalsesharing` remains standalone during migration
+- define how shared-package checks remain under `boundarycontrol` during migration
 
 Why separate:
 
@@ -424,7 +419,7 @@ Why split:
 
 Open questions:
 
-- whether file and dir consumer grouping both remain supported
+- whether package-level analysis remains sufficient until symbol-level analysis lands
 - whether symbol-level analysis is required for v1 `archcontrol` or can follow later
 
 Dependencies:
@@ -588,7 +583,7 @@ Prefer option B for OpenSpec even if the runtime config is unified.
 - `no-whitebox-testing` should not be directly ported to Go.
 - `depguard` is useful ecosystem overlap but not a replacement for a package-subtree architecture model.
 - `readfriendlyorder` is already a Go adaptation, not a failed parity port.
-- `nofalsesharing` currently provides only package-level sharing signals.
+- `boundarycontrol` currently provides only package-level shared-package signals.
 - the true parity gap for false sharing is symbol-level consumer analysis.
 - `no-single-use-constants` remains an unfilled and worthwhile gap.
 - unified architecture config is valuable, but it should be package-centric, not file-centric.
@@ -597,9 +592,9 @@ Prefer option B for OpenSpec even if the runtime config is unified.
 
 - Should `archcontrol` be one umbrella analyzer or a shared config consumed by several analyzers?
 - Should unmatched packages be ignored or denied by default under the architecture model?
-- Should `archcontrol` keep both `file` and `dir` consumer grouping for false-sharing analysis?
+- Should `archcontrol` keep package-level shared-package analysis only, or later add symbol-level analysis?
 - Should export contracts apply to all matched packages or only explicitly public package groups?
-- How much compatibility should be preserved for architecture-related analyzer names and `nofalsesharing`?
+- How much compatibility should be preserved for architecture-related analyzer naming after consolidating on `boundarycontrol`?
 - Is symbol-level false-sharing required before `archcontrol` is considered complete, or is it a follow-up enhancement?
 
 ## Short Recommendation

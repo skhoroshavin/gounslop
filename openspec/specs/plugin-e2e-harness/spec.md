@@ -69,7 +69,7 @@ The repository SHALL include representative plugin-level E2E coverage for all ex
 
 #### Scenario: boundarycontrol E2E coverage
 - **WHEN** E2E tests for `boundarycontrol` are run
-- **THEN** they cover: `architecture` map configuration, allowed imports, undeclared import violations, same-scope deep-import violations, auto-discovery of module scope from `go.mod`, and nested-module imports being treated as out of scope for the parent module
+- **THEN** they cover: `architecture` map configuration, allowed imports, undeclared import violations, same-scope deep-import violations, shared-package configuration failures, shared-package consumer threshold checks, auto-discovery of module scope from `go.mod`, and nested-module imports being treated as out of scope for the parent module
 
 #### Scenario: nospecialunicode E2E coverage
 - **WHEN** E2E tests for `nospecialunicode` are run
@@ -82,10 +82,6 @@ The repository SHALL include representative plugin-level E2E coverage for all ex
 #### Scenario: readfriendlyorder E2E coverage
 - **WHEN** E2E tests for `readfriendlyorder` are run
 - **THEN** they cover: correct order passes, incorrect top-level order flagged, method ordering enforced, init ordering, TestMain ordering, cyclic dependencies exempt
-
-#### Scenario: nofalsesharing E2E coverage preserved
-- **WHEN** existing E2E tests for `nofalsesharing` are run after migration
-- **THEN** they continue to cover the same scenarios (shared package violation, multiple consumers pass, invalid settings)
 
 ### Requirement: Repository E2E command wiring prepares the plugin binary outside the harness
 The repository SHALL provide a command entrypoint for E2E execution that ensures `custom-gcl` is available before plugin E2E tests run, while keeping build orchestration outside the Go harness itself. E2E tests SHALL run as part of the default `make test` target without requiring build tags.

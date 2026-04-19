@@ -22,7 +22,7 @@ Guidance for coding agents working in `gounslop`.
 - Test all: `make test`
 - Lint and test (run after each serious change): `make lint && make test`
 - Test a specific analyzer: `go test ./pkg/readfriendlyorder/`
-- Single test by name: `go test ./pkg/nofalsesharing/ -run TestFileMode`
+- Single test by name: `go test ./pkg/boundarycontrol/ -run TestSharedPackageWithSingleConsumerFails`
 
 ## Command Notes
 
@@ -43,7 +43,7 @@ Guidance for coding agents working in `gounslop`.
 ## Important Current Structure Notes
 
 - Each analyzer lives in its own package under `pkg/`
-- `nofalsesharing` has two files: `plugin.go` (golangci-lint Analyzer wrapper) and `analyzer.go` (core logic with `Run()`)
+- `boundarycontrol` owns both import-boundary enforcement and shared-package false-sharing checks
 - `readfriendlyorder` is split across `analyzer.go`, `method_order.go`, and `test_order.go`
 - `nospecialunicode` and `nounicodeescape` are not enabled for self-linting because they flag their own test data
 
@@ -105,7 +105,7 @@ Guidance for coding agents working in `gounslop`.
 
 - Return `(nil, nil)` from `Run` when prerequisites are intentionally absent; fail clearly when required module context cannot be discovered
 - Guard nullable values before dereferencing
-- Use `sync.Once` for expensive one-time computations across multiple package passes (see `nofalsesharing`)
+- Use `sync.Once` for expensive one-time computations across multiple package passes when analyzer-wide caches are needed
 
 ## Change Workflow for Agents
 

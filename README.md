@@ -50,7 +50,6 @@ The remaining analyzers need explicit configuration:
 linters:
   enable:
     - boundarycontrol
-    - nofalsesharing
     - readfriendlyorder
   settings:
     custom:
@@ -58,15 +57,12 @@ linters:
         type: "module"
         settings:
           architecture:
+            "pkg/shared":
+              shared: true
             ".":
-              imports: ["pkg/+", "internal/*"]
+              imports: ["pkg/+", "internal/*", "pkg/shared"]
             "pkg/repository/*":
               imports: ["pkg/models/+", "pkg/utils"]
-      nofalsesharing:
-        type: "module"
-        settings:
-          shared-dirs: "pkg/shared,internal/common"
-          mode: "dir"
       readfriendlyorder:
         type: "module"
 ```
@@ -107,19 +103,22 @@ arrow := "→"
 
 ### `boundarycontrol`
 
-Enforces selector-based package import boundaries inside the nearest enclosing Go module. `boundarycontrol` auto-discovers module scope from `go.mod`, ignores standard-library and third-party imports outside that module, excludes nested-module imports owned by a deeper `go.mod`, and also enforces same-scope deep-import restrictions.
+Enforces selector-based package import boundaries inside the nearest enclosing Go module. `boundarycontrol` auto-discovers module scope from `go.mod`, ignores standard-library and third-party imports outside that module, excludes nested-module imports owned by a deeper `go.mod`, enforces same-scope deep-import restrictions, and flags shared packages that are not actually shared.
 
 #### Settings
 
 | Setting | Type | Required | Description |
 | ------- | ---- | -------- | ----------- |
-| `architecture` | `map[string]object` | yes | Import policy keyed by package selector |
+| `architecture` | `map[string]object` | yes | Boundary and shared-package policy keyed by package selector |
 
 Each architecture entry has this shape:
 
 ```yaml
 "pkg/repository/*":
   imports: ["pkg/models/+", "pkg/utils"]
+
+"pkg/shared":
+  shared: true
 ```
 
 Supported key selector forms:
@@ -150,8 +149,10 @@ linters:
         type: "module"
         settings:
           architecture:
+            "pkg/shared":
+              shared: true
             ".":
-              imports: ["pkg/+", "internal/*"]
+              imports: ["pkg/+", "internal/*", "pkg/shared"]
             "pkg/api":
               imports: ["pkg/contracts", "pkg/shared/+", "internal/http/*"]
             "pkg/repository/*":
@@ -164,30 +165,9 @@ Notes:
 - Imports from a package to its immediate child package stay allowed even without an explicit rule.
 - Same-scope deep imports are rejected directly by `boundarycontrol`.
 - Module scope comes from the nearest enclosing `go.mod`; nested modules are treated as out of scope for the parent module.
-
-### `nofalsesharing`
-
-The "shared" folder anti-pattern detector. LLMs love creating shared utilities that are only used by one consumer — or worse, by nobody at all. This analyzer requires that packages inside your designated shared directories are actually imported by at least two separate entities. If it's only used in one place, it's not shared — it's misplaced.
-
-#### Settings
-
-| Setting       | Type     | Required | Description                                                              |
-| ------------- | -------- | -------- | ------------------------------------------------------------------------ |
-| `shared-dirs` | `string` | yes      | Comma-separated shared directory paths (e.g. `pkg/shared,internal/common`) |
-| `mode`        | `string` | no       | Consumer counting mode: `file` (default) or `dir`                        |
-| `module-root` | `string` | no       | Go module path (auto-detected from `go.mod` if not specified)            |
-
-In `file` mode, each importing file counts as a separate consumer. In `dir` mode, each importing package's directory (up to 3 levels deep) counts as one consumer.
-
-#### What it catches
-
-```
-pkg/shared/formatdate — only used by: pkg/features/calendar/view.go
-  → error: must be used by 2+ entities
-
-pkg/utils/oldhelper — not imported by any entity
-  → error: must be used by 2+ entities
-```
+- A selector with `shared: true` marks its owned package subtree for package-level false-sharing checks.
+- Shared-package consumers are counted by importing package path from non-test code.
+- There is no separate `nofalsesharing` plugin or selector-level `mode` setting anymore.
 
 ### `readfriendlyorder`
 

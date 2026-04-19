@@ -15,7 +15,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "boundarycontrol",
-	Doc:      "enforce package import boundaries within the discovered Go module",
+	Doc:      "enforce package import boundaries and shared-package usage within the discovered Go module",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
@@ -26,6 +26,7 @@ type Config struct {
 
 type Policy struct {
 	Imports []string `json:"imports"`
+	Shared  bool     `json:"shared"`
 }
 
 func init() {
@@ -85,13 +86,19 @@ func run(pass *analysis.Pass) (any, error) {
 		pass.Reportf(imp.Pos(), "undeclared boundarycontrol import: %s", importPath)
 	})
 
+	if err := reportFalseSharingDiagnostic(pass, moduleCtx, cfg); err != nil {
+		return nil, err
+	}
+
 	return nil, nil
 }
 
 func configFromFlags() (compiledConfig, error) {
 	var cfg Config
 	if architectureFlag != "" {
-		if err := json.Unmarshal([]byte(architectureFlag), &cfg.Architecture); err != nil {
+		decoder := json.NewDecoder(strings.NewReader(architectureFlag))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&cfg.Architecture); err != nil {
 			return compiledConfig{}, fmt.Errorf("boundarycontrol: invalid architecture setting: %w", err)
 		}
 	}
@@ -115,13 +122,16 @@ func compileConfig(cfg Config) (compiledConfig, error) {
 	sort.Strings(selectors)
 
 	policies := make([]compiledPolicy, 0, len(selectors))
+	hasSharedSelectors := false
+	var cacheKey strings.Builder
 	for _, selector := range selectors {
 		parsedKey, err := parseKeySelector(selector)
 		if err != nil {
 			return compiledConfig{}, fmt.Errorf("boundarycontrol: architecture[%q]: %w", selector, err)
 		}
 
-		imports := cfg.Architecture[selector].Imports
+		policy := cfg.Architecture[selector]
+		imports := policy.Imports
 		parsedImports := make([]parsedSelector, 0, len(imports))
 		for i, importSelector := range imports {
 			parsedImport, err := parseImportSelector(importSelector)
@@ -132,13 +142,33 @@ func compileConfig(cfg Config) (compiledConfig, error) {
 			parsedImports = append(parsedImports, parsedImport)
 		}
 
+		if policy.Shared {
+			hasSharedSelectors = true
+		}
+
+		cacheKey.WriteString(selector)
+		cacheKey.WriteByte(0)
+		if policy.Shared {
+			cacheKey.WriteString("shared")
+		}
+		cacheKey.WriteByte(0)
+		for _, importSelector := range imports {
+			cacheKey.WriteString(importSelector)
+			cacheKey.WriteByte(0)
+		}
+
 		policies = append(policies, compiledPolicy{
 			selector: parsedKey,
 			imports:  parsedImports,
+			shared:   policy.Shared,
 		})
 	}
 
-	return compiledConfig{policies: policies}, nil
+	return compiledConfig{
+		policies:           policies,
+		hasSharedSelectors: hasSharedSelectors,
+		cacheKey:           cacheKey.String(),
+	}, nil
 }
 
 func normalizeConfig(cfg Config) Config {
@@ -159,7 +189,10 @@ func normalizeConfig(cfg Config) Config {
 			imports[i] = strings.TrimSpace(imports[i])
 		}
 
-		normalized[normalizedSelector] = Policy{Imports: imports}
+		normalized[normalizedSelector] = Policy{
+			Imports: imports,
+			Shared:  policy.Shared,
+		}
 	}
 
 	cfg.Architecture = normalized
@@ -230,12 +263,15 @@ func resolveOwner(policies []compiledPolicy, importerRel string) (compiledPolicy
 }
 
 type compiledConfig struct {
-	policies []compiledPolicy
+	policies           []compiledPolicy
+	hasSharedSelectors bool
+	cacheKey           string
 }
 
 type compiledPolicy struct {
 	selector parsedSelector
 	imports  []parsedSelector
+	shared   bool
 }
 
 func ownerCandidateFor(selector parsedSelector, importerRel string) (ownerCandidate, bool) {
