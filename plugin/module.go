@@ -37,13 +37,6 @@ func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
 		}
 	}
 
-	allAnalyzers := map[string]*analysis.Analyzer{
-		"boundarycontrol":   boundarycontrol.Analyzer,
-		"nospecialunicode":  nospecialunicode.Analyzer,
-		"nounicodeescape":   nounicodeescape.Analyzer,
-		"readfriendlyorder": readfriendlyorder.Analyzer,
-	}
-
 	if !slices.Contains(s.Disable, "boundarycontrol") && s.Architecture != nil {
 		cfg, err := s.toConfig()
 		if err != nil {
@@ -59,7 +52,7 @@ func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
 			return nil, err
 		}
 
-		if err := allAnalyzers["boundarycontrol"].Flags.Set("architecture", string(architectureJSON)); err != nil {
+		if err := boundarycontrol.Analyzer.Flags.Set("architecture", string(architectureJSON)); err != nil {
 			return nil, err
 		}
 	}
@@ -73,6 +66,13 @@ func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
 	}
 
 	return &gounslopPlugin{analyzers: analyzers}, nil
+}
+
+var allAnalyzers = map[string]*analysis.Analyzer{
+	"boundarycontrol":   boundarycontrol.Analyzer,
+	"nospecialunicode":  nospecialunicode.Analyzer,
+	"nounicodeescape":   nounicodeescape.Analyzer,
+	"readfriendlyorder": readfriendlyorder.Analyzer,
 }
 
 // gounslopPlugin wraps all gounslop analyzers into a single golangci-lint LinterPlugin.
