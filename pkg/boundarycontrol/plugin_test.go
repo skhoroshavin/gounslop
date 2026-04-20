@@ -177,6 +177,19 @@ func (s *BoundarycontrolE2ESuite) TestUnmatchedImporterHasEmptyImportList() {
 	s.ShouldFailWith("undeclared boundarycontrol import")
 }
 
+func (s *BoundarycontrolE2ESuite) TestUnmatchedPackageIsAllowed() {
+	s.GivenConfig(map[string]any{
+		"architecture": map[string]any{},
+	})
+	s.GivenFile("shared/contracts/contracts.go",
+		"package contracts",
+		"",
+		"var X = 1",
+	)
+	s.LintFile("shared/contracts/contracts.go")
+	s.ShouldPass()
+}
+
 func (s *BoundarycontrolE2ESuite) TestImportSelectorExactMatchesOnlyExactPackage() {
 	s.GivenConfig(map[string]any{
 		"architecture": map[string]any{
