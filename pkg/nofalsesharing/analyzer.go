@@ -1,51 +1,68 @@
-package boundarycontrol
+package nofalsesharing
 
 import (
 	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
-	"sort"
 	"strings"
 	"sync"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
+
+	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 )
 
-func reportFalseSharingDiagnostic(pass *analysis.Pass, moduleCtx moduleContext, cfg compiledConfig) error {
-	if !cfg.hasSharedSelectors {
-		return nil
+// Run performs false-sharing detection for a single package.
+func Run(pass *analysis.Pass, modCache *analyzer.ModuleContextCache, fsCache *Cache, cfg analyzer.CompiledConfig) (any, error) {
+	if !cfg.HasSharedSelectors {
+		return nil, nil
 	}
 
-	diagnostics, err := loadFalseSharingDiagnostics(moduleCtx, cfg)
+	moduleCtx, err := modCache.Discover(pass)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("nofalsesharing: %w", err)
+	}
+
+	diagnostics, err := fsCache.load(moduleCtx, cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	packageDiagnostics, ok := diagnostics[pass.Pkg.Path()]
 	if !ok || len(packageDiagnostics) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	definitions := collectPackageSymbolDefinitions(pass.Files, pass.TypesInfo, pass.Pkg)
-	for _, key := range sortedMapKeys(packageDiagnostics) {
+	for _, key := range analyzer.SortedMapKeys(packageDiagnostics) {
 		if def, ok := definitions[key]; ok {
 			pass.Reportf(def.pos, "%s", packageDiagnostics[key])
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
-func loadFalseSharingDiagnostics(moduleCtx moduleContext, cfg compiledConfig) (map[string]map[string]string, error) {
-	cacheKey := falseSharingCacheKey{
-		moduleDir: moduleCtx.dir,
-		configKey: cfg.cacheKey,
+// Cache provides module-wide caching for false-sharing diagnostics.
+type Cache struct {
+	cache sync.Map
+}
+
+// NewCache creates a new false-sharing cache.
+func NewCache() *Cache {
+	return &Cache{}
+}
+
+func (c *Cache) load(moduleCtx analyzer.ModuleContext, cfg analyzer.CompiledConfig) (map[string]map[string]string, error) {
+	key := cacheKey{
+		moduleDir: moduleCtx.Dir,
+		configKey: cfg.CacheKey,
 	}
 
-	entryValue, _ := falseSharingCache.LoadOrStore(cacheKey, &falseSharingCacheEntry{})
-	entry := entryValue.(*falseSharingCacheEntry)
+	entryValue, _ := c.cache.LoadOrStore(key, &cacheEntry{})
+	entry := entryValue.(*cacheEntry)
 	entry.once.Do(func() {
 		entry.diagnostics, entry.err = analyzeFalseSharing(moduleCtx, cfg)
 	})
@@ -53,32 +70,30 @@ func loadFalseSharingDiagnostics(moduleCtx moduleContext, cfg compiledConfig) (m
 	return entry.diagnostics, entry.err
 }
 
-var falseSharingCache sync.Map
+type cacheKey struct {
+	moduleDir string
+	configKey string
+}
 
-func analyzeFalseSharing(moduleCtx moduleContext, cfg compiledConfig) (map[string]map[string]string, error) {
-	packagesByPath, err := loadModulePackages(moduleCtx.dir)
+type cacheEntry struct {
+	once        sync.Once
+	diagnostics map[string]map[string]string
+	err         error
+}
+
+func analyzeFalseSharing(moduleCtx analyzer.ModuleContext, cfg analyzer.CompiledConfig) (map[string]map[string]string, error) {
+	packagesByPath, err := loadModulePackages(moduleCtx.Dir)
 	if err != nil {
 		return nil, err
 	}
 
-	sharedPackages := collectSharedPackages(packagesByPath, moduleCtx, cfg.policies)
+	sharedPackages := collectSharedPackages(packagesByPath, moduleCtx, cfg.Policies)
 	if len(sharedPackages) == 0 {
 		return nil, nil
 	}
 
 	countSharedSymbolConsumers(packagesByPath, sharedPackages, moduleCtx)
 	return falseSharingDiagnostics(sharedPackages), nil
-}
-
-type falseSharingCacheKey struct {
-	moduleDir string
-	configKey string
-}
-
-type falseSharingCacheEntry struct {
-	once        sync.Once
-	diagnostics map[string]map[string]string
-	err         error
 }
 
 func loadModulePackages(moduleDir string) (map[string]*packages.Package, error) {
@@ -94,7 +109,7 @@ func loadModulePackages(moduleDir string) (map[string]*packages.Package, error) 
 
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
-		return nil, fmt.Errorf("boundarycontrol: loading packages for shared-package analysis: %w", err)
+		return nil, fmt.Errorf("nofalsesharing: loading packages for shared-package analysis: %w", err)
 	}
 
 	packagesByPath := make(map[string]*packages.Package)
@@ -111,18 +126,18 @@ func loadModulePackages(moduleDir string) (map[string]*packages.Package, error) 
 
 func collectSharedPackages(
 	packagesByPath map[string]*packages.Package,
-	moduleCtx moduleContext,
-	policies []compiledPolicy,
+	moduleCtx analyzer.ModuleContext,
+	policies []analyzer.CompiledPolicy,
 ) map[string]*sharedPackageEntry {
 	sharedPackages := make(map[string]*sharedPackageEntry)
 	for pkgPath := range packagesByPath {
-		relPath, ownership := classifyImportPath(pkgPath, moduleCtx)
-		if ownership != importOwnershipCurrentModule {
+		relPath, ownership := analyzer.ClassifyImportPath(pkgPath, moduleCtx)
+		if ownership != analyzer.ImportOwnershipCurrentModule {
 			continue
 		}
 
-		owner, found := resolveOwner(policies, relPath)
-		if !found || !owner.shared {
+		owner, found := analyzer.ResolveOwner(policies, relPath)
+		if !found || !owner.Shared {
 			continue
 		}
 
@@ -159,11 +174,11 @@ func collectSharedPackageSymbols(pkg *packages.Package) map[string]*sharedSymbol
 func countSharedSymbolConsumers(
 	packagesByPath map[string]*packages.Package,
 	sharedPackages map[string]*sharedPackageEntry,
-	moduleCtx moduleContext,
+	moduleCtx analyzer.ModuleContext,
 ) {
 	for pkgPath, pkg := range packagesByPath {
-		consumerRelPath, ownership := classifyImportPath(pkgPath, moduleCtx)
-		if ownership != importOwnershipCurrentModule || !hasNonTestFiles(pkg.CompiledGoFiles) {
+		consumerRelPath, ownership := analyzer.ClassifyImportPath(pkgPath, moduleCtx)
+		if ownership != analyzer.ImportOwnershipCurrentModule || !hasNonTestFiles(pkg.CompiledGoFiles) {
 			continue
 		}
 
@@ -230,10 +245,6 @@ func countSymbolConsumersInNode(
 }
 
 func walkReferencedObjects(node ast.Node, info *types.Info, visit func(types.Object)) {
-	if node == nil || info == nil {
-		return
-	}
-
 	stack := make([]ast.Node, 0, 8)
 	ast.Inspect(node, func(current ast.Node) bool {
 		if current == nil {
@@ -271,9 +282,9 @@ func walkReferencedObjects(node ast.Node, info *types.Info, visit func(types.Obj
 
 func falseSharingDiagnostics(sharedPackages map[string]*sharedPackageEntry) map[string]map[string]string {
 	diagnostics := make(map[string]map[string]string)
-	for _, pkgPath := range sortedMapKeys(sharedPackages) {
+	for _, pkgPath := range analyzer.SortedMapKeys(sharedPackages) {
 		entry := sharedPackages[pkgPath]
-		for _, key := range sortedMapKeys(entry.symbols) {
+		for _, key := range analyzer.SortedMapKeys(entry.symbols) {
 			symbol := entry.symbols[key]
 			consumerCount := len(symbol.externalConsumers)
 			if symbol.hasInternalConsumer {
@@ -291,7 +302,7 @@ func falseSharingDiagnostics(sharedPackages map[string]*sharedPackageEntry) map[
 			case len(symbol.externalConsumers) == 0:
 				reason = "only used by internal declaration in shared package"
 			default:
-				consumers := sortedMapKeys(symbol.externalConsumers)
+				consumers := analyzer.SortedMapKeys(symbol.externalConsumers)
 				reason = "only used by: " + consumers[0]
 			}
 
@@ -339,10 +350,6 @@ func collectPackageSymbolDefinitions(
 }
 
 func forEachDeclaration(files []*ast.File, info *types.Info, visit func(ast.Node, []types.Object), pkg *types.Package) {
-	if info == nil || pkg == nil {
-		return
-	}
-
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			switch typedDecl := decl.(type) {
@@ -416,10 +423,7 @@ func falseSharingSymbolDetails(obj types.Object) symbolInfo {
 }
 
 func funcSymbolDetails(fn *types.Func) symbolInfo {
-	signature, ok := fn.Type().(*types.Signature)
-	if !ok {
-		return symbolInfo{}
-	}
+	signature := fn.Type().(*types.Signature)
 
 	if signature.Recv() == nil {
 		pkgPath := fn.Pkg().Path()
@@ -495,7 +499,7 @@ func constSymbolDetails(c *types.Const) symbolInfo {
 }
 
 func symbolKey(pkgPath, kind, receiver, name string) string {
-	return strings.Join([]string{pkgPath, kind, receiver, name}, "\x00")
+	return pkgPath + "\x00" + kind + "\x00" + receiver + "\x00" + name
 }
 
 type symbolInfo struct {
@@ -505,15 +509,6 @@ type symbolInfo struct {
 	ok          bool
 }
 
-func sortedMapKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 type symbolDefinition struct {
 	displayName string
 	pos         token.Pos
@@ -521,11 +516,9 @@ type symbolDefinition struct {
 
 func hasNonTestFiles(filePaths []string) bool {
 	for _, filePath := range filePaths {
-		if strings.HasSuffix(filePath, "_test.go") {
-			continue
+		if !strings.HasSuffix(filePath, "_test.go") {
+			return true
 		}
-
-		return true
 	}
 
 	return false

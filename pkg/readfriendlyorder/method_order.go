@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"strings"
 
+	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 )
@@ -16,7 +17,6 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 	constructors := make(map[string]*ast.FuncDecl) // type name -> New* func
 	constructorDeclIdx := make(map[string]int)     // type name -> file.Decls index of constructor
 
-	declIdx := 0
 	for i, d := range file.Decls {
 		switch n := d.(type) {
 		case *ast.GenDecl:
@@ -32,7 +32,7 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 					methods[typeName] = append(methods[typeName], methodEntry{
 						name:     n.Name.Name,
 						node:     n,
-						index:    declIdx,
+						index:    i,
 						exported: n.Name.IsExported(),
 					})
 				}
@@ -44,7 +44,6 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 				}
 			}
 		}
-		declIdx++
 	}
 
 	for typeName, meths := range methods {
@@ -63,8 +62,8 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 						ctor.Name.Name, typeName),
 				}
 				targetDecl := file.Decls[typeIdx]
-				_, insertOffset := declRange(pass.Fset, src, targetDecl)
-				fix := buildMoveFix(pass.Fset, file, src, ctor, insertOffset)
+				_, insertOffset := analyzer.DeclRange(pass.Fset, src, targetDecl)
+				fix := analyzer.BuildMoveFix(pass.Fset, file, src, ctor, insertOffset)
 				if fix != nil {
 					diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 				}
@@ -87,7 +86,7 @@ func reportMethodDependencyOrder(pass *analysis.Pass, meths []methodEntry, src [
 					m.name, consumer.name),
 			}
 			file := findFileForNode(pass, m.node)
-			fix := buildSwapFix(pass.Fset, file, src, m.node, consumer.node)
+			fix := analyzer.BuildSwapFix(pass.Fset, file, src, m.node, consumer.node)
 			if fix != nil {
 				diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 			}

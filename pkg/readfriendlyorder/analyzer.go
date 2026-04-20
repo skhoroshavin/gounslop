@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -28,7 +29,7 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		src, err := readFileSource(pass.Fset, file)
+		src, err := analyzer.ReadFileSource(pass.Fset, file)
 		if err != nil {
 			continue
 		}
@@ -63,7 +64,7 @@ func reportInitOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 				Pos:     fn.Pos(),
 				Message: fmt.Sprintf("Place init() before %q for visibility.", firstNonInitFuncName),
 			}
-			fix := buildSwapFix(pass.Fset, file, src, file.Decls[firstNonInitFuncIdx], d)
+			fix := analyzer.BuildSwapFix(pass.Fset, file, src, file.Decls[firstNonInitFuncIdx], d)
 			if fix != nil {
 				diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 			}
@@ -143,7 +144,7 @@ func computeTopLevelReorderFix(pass *analysis.Pass, file *ast.File, src []byte,
 		return nil
 	}
 
-	return buildReorderFix(pass.Fset, file, src, fileDecls, newOrder)
+	return analyzer.BuildReorderFix(pass.Fset, file, src, fileDecls, newOrder)
 }
 
 func collectNonImportDecls(file *ast.File) []ast.Decl {
@@ -329,9 +330,6 @@ func buildRefGraph(pass *analysis.Pass, file *ast.File, decls []decl) map[string
 				continue
 			}
 			declName := n.Name.Name
-			if !nameSet[declName] {
-				continue
-			}
 			refs[declName] = findReferencedNames(pass, n, nameSet, declName)
 		case *ast.GenDecl:
 			if n.Tok == token.IMPORT {
@@ -341,15 +339,12 @@ func buildRefGraph(pass *analysis.Pass, file *ast.File, decls []decl) map[string
 				switch s := spec.(type) {
 				case *ast.ValueSpec:
 					for _, name := range s.Names {
-						if !nameSet[name.Name] {
+						if name.Name == "_" {
 							continue
 						}
 						refs[name.Name] = findReferencedNamesInValueSpec(pass, s, nameSet, name.Name)
 					}
 				case *ast.TypeSpec:
-					if !nameSet[s.Name.Name] {
-						continue
-					}
 					refs[s.Name.Name] = findReferencedNames(pass, s, nameSet, s.Name.Name)
 				}
 			}

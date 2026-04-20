@@ -1,4 +1,4 @@
-package boundarycontrol
+package analyzer
 
 import (
 	"fmt"
@@ -13,54 +13,66 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-func discoverModuleContext(pass *analysis.Pass) (moduleContext, error) {
+type ModuleContext struct {
+	Dir               string
+	Path              string
+	NestedModulePaths []string
+}
+
+type ModuleContextCache struct {
+	cache sync.Map
+}
+
+func NewModuleContextCache() *ModuleContextCache {
+	return &ModuleContextCache{}
+}
+
+func (c *ModuleContextCache) Discover(pass *analysis.Pass) (ModuleContext, error) {
 	if len(pass.Files) == 0 {
-		return moduleContext{}, fmt.Errorf("boundarycontrol: no files available to discover module scope")
+		return ModuleContext{}, fmt.Errorf("no files available to discover module scope")
 	}
 
 	packageFile := pass.Fset.PositionFor(pass.Files[0].Package, false).Filename
 	if packageFile == "" {
-		return moduleContext{}, fmt.Errorf("boundarycontrol: no file path available to discover module scope for %q", pass.Pkg.Path())
+		return ModuleContext{}, fmt.Errorf("no file path available to discover module scope for %q", pass.Pkg.Path())
 	}
 
 	goModPath, err := nearestGoMod(filepath.Dir(packageFile))
 	if err != nil {
-		return moduleContext{}, err
+		return ModuleContext{}, err
 	}
 	if goModPath == "" {
-		return moduleContext{}, fmt.Errorf("boundarycontrol: module scope could not be discovered from go.mod for %q", pass.Pkg.Path())
+		return ModuleContext{}, fmt.Errorf("module scope could not be discovered from go.mod for %q", pass.Pkg.Path())
 	}
 
 	moduleDir := filepath.Dir(goModPath)
-	return loadModuleContext(moduleDir, goModPath)
+	return c.load(moduleDir, goModPath)
 }
 
-func loadModuleContext(moduleDir, goModPath string) (moduleContext, error) {
-	if cached, ok := moduleContextCache.Load(moduleDir); ok {
-		return cached.(moduleContext), nil
+func (c *ModuleContextCache) load(moduleDir, goModPath string) (ModuleContext, error) {
+	if cached, ok := c.cache.Load(moduleDir); ok {
+		return cached.(ModuleContext), nil
 	}
 
 	modulePath, err := readModulePath(goModPath)
 	if err != nil {
-		return moduleContext{}, err
+		return ModuleContext{}, err
 	}
 
 	nestedModulePaths, err := discoverNestedModulePaths(moduleDir)
 	if err != nil {
-		return moduleContext{}, err
+		return ModuleContext{}, err
 	}
 
-	ctx := moduleContext{
-		dir:               moduleDir,
-		path:              modulePath,
-		nestedModulePaths: nestedModulePaths,
+	ctx := ModuleContext{
+		Dir:               moduleDir,
+		Path:              modulePath,
+		NestedModulePaths: nestedModulePaths,
 	}
 
-	actual, _ := moduleContextCache.LoadOrStore(moduleDir, ctx)
-	return actual.(moduleContext), nil
+	actual, _ := c.cache.LoadOrStore(moduleDir, ctx)
+	return actual.(ModuleContext), nil
 }
-
-var moduleContextCache sync.Map
 
 func nearestGoMod(startDir string) (string, error) {
 	currentDir := startDir
@@ -71,7 +83,7 @@ func nearestGoMod(startDir string) (string, error) {
 			return goModPath, nil
 		}
 		if err != nil && !os.IsNotExist(err) {
-			return "", fmt.Errorf("boundarycontrol: checking %s: %w", goModPath, err)
+			return "", fmt.Errorf("checking %s: %w", goModPath, err)
 		}
 
 		parentDir := filepath.Dir(currentDir)
@@ -108,7 +120,7 @@ func discoverNestedModulePaths(moduleDir string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("boundarycontrol: scanning nested modules under %s: %w", moduleDir, err)
+		return nil, fmt.Errorf("scanning nested modules under %s: %w", moduleDir, err)
 	}
 
 	nestedModulePaths := make([]string, 0, len(modulePaths))
@@ -127,45 +139,39 @@ func discoverNestedModulePaths(moduleDir string) ([]string, error) {
 	return nestedModulePaths, nil
 }
 
-func classifyImportPath(importPath string, moduleCtx moduleContext) (string, importOwnership) {
-	importedRel, ok := relativeModulePath(importPath, moduleCtx.path)
+func ClassifyImportPath(importPath string, moduleCtx ModuleContext) (string, ImportOwnership) {
+	importedRel, ok := RelativeModulePath(importPath, moduleCtx.Path)
 	if !ok {
-		return "", importOwnershipOutsideModule
+		return "", ImportOwnershipOutsideModule
 	}
 
-	for _, nestedModulePath := range moduleCtx.nestedModulePaths {
+	for _, nestedModulePath := range moduleCtx.NestedModulePaths {
 		if importPath == nestedModulePath || strings.HasPrefix(importPath, nestedModulePath+"/") {
-			return "", importOwnershipNestedModule
+			return "", ImportOwnershipNestedModule
 		}
 	}
 
-	return importedRel, importOwnershipCurrentModule
-}
-
-type moduleContext struct {
-	dir               string
-	path              string
-	nestedModulePaths []string
+	return importedRel, ImportOwnershipCurrentModule
 }
 
 func readModulePath(goModPath string) (string, error) {
 	contents, err := os.ReadFile(goModPath)
 	if err != nil {
-		return "", fmt.Errorf("boundarycontrol: reading %s: %w", goModPath, err)
+		return "", fmt.Errorf("reading %s: %w", goModPath, err)
 	}
 
 	modulePath := strings.TrimSpace(modfile.ModulePath(contents))
 	if modulePath == "" {
-		return "", fmt.Errorf("boundarycontrol: %s does not declare a module path", goModPath)
+		return "", fmt.Errorf("%s does not declare a module path", goModPath)
 	}
 
 	return modulePath, nil
 }
 
-type importOwnership int
+type ImportOwnership int
 
 const (
-	importOwnershipOutsideModule importOwnership = iota
-	importOwnershipCurrentModule
-	importOwnershipNestedModule
+	ImportOwnershipOutsideModule ImportOwnership = iota
+	ImportOwnershipCurrentModule
+	ImportOwnershipNestedModule
 )

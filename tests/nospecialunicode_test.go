@@ -1,26 +1,24 @@
-package nospecialunicode_test
+package tests
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/skhoroshavin/gounslop/internal/ruletest"
+	"github.com/skhoroshavin/gounslop/tests/rule"
 	"github.com/stretchr/testify/suite"
 )
 
 type NospecialunicodeE2ESuite struct {
-	ruletest.Suite
+	rule.Suite
 }
 
 func (s *NospecialunicodeE2ESuite) SetupTest() {
 	s.Suite.SetupTest()
-	s.EnableOnly = []string{"nospecialunicode"}
 	s.ModulePath = "example.com/mod"
 }
 
-func TestPluginE2E(t *testing.T) {
-	s := new(NospecialunicodeE2ESuite)
-	suite.Run(t, s)
+func TestNospecialunicodeE2E(t *testing.T) {
+	suite.Run(t, new(NospecialunicodeE2ESuite))
 }
 
 func zeroWidthString(value string) string {

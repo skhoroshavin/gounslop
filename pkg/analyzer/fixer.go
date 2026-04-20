@@ -1,4 +1,4 @@
-package readfriendlyorder
+package analyzer
 
 import (
 	"go/ast"
@@ -9,10 +9,10 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// buildSwapFix creates a SuggestedFix that swaps two declarations in place.
-func buildSwapFix(fset *token.FileSet, file *ast.File, src []byte, a, b ast.Decl) *analysis.SuggestedFix {
-	aStart, aEnd := declRange(fset, src, a)
-	bStart, bEnd := declRange(fset, src, b)
+// BuildSwapFix creates a SuggestedFix that swaps two declarations in place.
+func BuildSwapFix(fset *token.FileSet, file *ast.File, src []byte, a, b ast.Decl) *analysis.SuggestedFix {
+	aStart, aEnd := DeclRange(fset, src, a)
+	bStart, bEnd := DeclRange(fset, src, b)
 
 	// Ensure a comes before b
 	if aStart > bStart {
@@ -48,10 +48,10 @@ func buildSwapFix(fset *token.FileSet, file *ast.File, src []byte, a, b ast.Decl
 	}
 }
 
-// buildReorderFix creates a SuggestedFix that reorders a sequence of declarations.
+// BuildReorderFix creates a SuggestedFix that reorders a sequence of declarations.
 // currentDecls is the list of ast.Decl entries in current order.
 // newOrder is a permutation: newOrder[i] is the index into currentDecls for position i.
-func buildReorderFix(fset *token.FileSet, file *ast.File, src []byte,
+func BuildReorderFix(fset *token.FileSet, file *ast.File, src []byte,
 	currentDecls []ast.Decl, newOrder []int) *analysis.SuggestedFix {
 
 	if len(currentDecls) != len(newOrder) {
@@ -80,7 +80,7 @@ func buildReorderFix(fset *token.FileSet, file *ast.File, src []byte,
 	}
 	infos := make([]declInfo, len(currentDecls))
 	for i, d := range currentDecls {
-		s, e := declRange(fset, src, d)
+		s, e := DeclRange(fset, src, d)
 		infos[i] = declInfo{s, e}
 	}
 
@@ -126,10 +126,10 @@ func buildReorderFix(fset *token.FileSet, file *ast.File, src []byte,
 	}
 }
 
-// buildMoveFix creates a SuggestedFix that moves a declaration to a target position.
+// BuildMoveFix creates a SuggestedFix that moves a declaration to a target position.
 // The declaration is removed from its current position and inserted before the target position.
-func buildMoveFix(fset *token.FileSet, file *ast.File, src []byte, toMove ast.Decl, insertBeforeOffset int) *analysis.SuggestedFix {
-	moveStart, moveEnd := declRange(fset, src, toMove)
+func BuildMoveFix(fset *token.FileSet, file *ast.File, src []byte, toMove ast.Decl, insertBeforeOffset int) *analysis.SuggestedFix {
+	moveStart, moveEnd := DeclRange(fset, src, toMove)
 	moveText := make([]byte, moveEnd-moveStart)
 	copy(moveText, src[moveStart:moveEnd])
 
@@ -172,15 +172,15 @@ func buildMoveFix(fset *token.FileSet, file *ast.File, src []byte, toMove ast.De
 	}
 }
 
-// readFileSource reads the source bytes for the file containing the given AST file.
-func readFileSource(fset *token.FileSet, file *ast.File) ([]byte, error) {
+// ReadFileSource reads the source bytes for the file containing the given AST file.
+func ReadFileSource(fset *token.FileSet, file *ast.File) ([]byte, error) {
 	filename := fset.Position(file.Pos()).Filename
 	return os.ReadFile(filename)
 }
 
-// declRange returns the byte offset range [start, end) for a declaration,
+// DeclRange returns the byte offset range [start, end) for a declaration,
 // including its doc comment and everything up to the end of the last line (including newline).
-func declRange(fset *token.FileSet, src []byte, d ast.Decl) (start, end int) {
+func DeclRange(fset *token.FileSet, src []byte, d ast.Decl) (start, end int) {
 	startPos := d.Pos()
 	switch n := d.(type) {
 	case *ast.FuncDecl:

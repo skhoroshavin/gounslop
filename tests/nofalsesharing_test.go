@@ -1,10 +1,27 @@
-package boundarycontrol_test
+package tests
 
 import (
+	"testing"
+
 	"github.com/skhoroshavin/gounslop/pkg/gounslop"
+	"github.com/skhoroshavin/gounslop/tests/rule"
+	"github.com/stretchr/testify/suite"
 )
 
-func (s *BoundarycontrolE2ESuite) TestRemovedModeSettingFailsClearly() {
+type NofalsesharingE2ESuite struct {
+	rule.Suite
+}
+
+func (s *NofalsesharingE2ESuite) SetupTest() {
+	s.Suite.SetupTest()
+	s.ModulePath = "example.com/mod"
+}
+
+func TestNofalsesharingE2E(t *testing.T) {
+	suite.Run(t, new(NofalsesharingE2ESuite))
+}
+
+func (s *NofalsesharingE2ESuite) TestRemovedModeSettingFailsClearly() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -19,90 +36,10 @@ func (s *BoundarycontrolE2ESuite) TestRemovedModeSettingFailsClearly() {
 		"func Use() {}",
 	)
 	s.LintFile("feature/consumer.go")
-	s.ShouldFailWith("boundarycontrol", "architecture[\"shared\"].mode is unsupported")
+	s.ShouldFailWith("architecture[\"shared\"].mode is unsupported")
 }
 
-func (s *BoundarycontrolE2ESuite) TestInvalidExportRegexFailsClearly() {
-	s.GivenConfig(gounslop.Config{
-		Architecture: map[string]gounslop.PolicyConfig{
-			"pkg/api": {
-				Exports: []string{"("},
-			},
-		},
-	})
-	s.GivenFile("pkg/api/api.go",
-		"package api",
-		"",
-		"func NewClient() {}",
-	)
-	s.LintFile("pkg/api/api.go")
-	s.ShouldFailWith("boundarycontrol", `architecture["pkg/api"].exports[0]: invalid regex`)
-}
-
-func (s *BoundarycontrolE2ESuite) TestExportContractsAllowMatchingTopLevelDeclarations() {
-	s.GivenConfig(gounslop.Config{
-		Architecture: map[string]gounslop.PolicyConfig{
-			"pkg/api": {
-				Exports: []string{"^New[A-Z].*$", "^Client$"},
-			},
-		},
-	})
-	s.GivenFile("pkg/api/api.go",
-		"package api",
-		"",
-		"type Client struct{}",
-		"",
-		"func NewClient() Client {",
-		"\treturn Client{}",
-		"}",
-		"",
-		"func buildClient() Client {",
-		"\treturn Client{}",
-		"}",
-		"",
-		"func (Client) Build() Client {",
-		"\treturn Client{}",
-		"}",
-	)
-	s.LintFile("pkg/api/api.go")
-	s.ShouldPass()
-}
-
-func (s *BoundarycontrolE2ESuite) TestExportContractsReportViolatingTopLevelDeclaration() {
-	s.GivenConfig(gounslop.Config{
-		Architecture: map[string]gounslop.PolicyConfig{
-			"pkg/api": {
-				Exports: []string{"^New[A-Z].*$"},
-			},
-		},
-	})
-	s.GivenFile("pkg/api/api.go",
-		"package api",
-		"",
-		"func BuildClient() {}",
-	)
-	s.LintFile("pkg/api/api.go")
-	s.ShouldFailWith("pkg/api/api.go", "BuildClient does not match boundarycontrol export contract")
-}
-
-func (s *BoundarycontrolE2ESuite) TestExportContractsUseFullNameMatching() {
-	s.GivenConfig(gounslop.Config{
-		Architecture: map[string]gounslop.PolicyConfig{
-			"pkg/api": {
-				Exports: []string{"Error"},
-			},
-		},
-	})
-	s.GivenFile("pkg/api/api.go",
-		"package api",
-		"",
-		"type ClientError struct{}",
-	)
-	s.LintFile("pkg/api/api.go")
-	s.ShouldFailWith("pkg/api/api.go", "ClientError does not match boundarycontrol export contract")
-}
-
-func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() {
+func (s *NofalsesharingE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared/lib": {
@@ -129,7 +66,7 @@ func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() 
 	s.ShouldFailWith("shared/lib/http/http.go", "X only used by: feature/api", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubtreeAsShared() {
+func (s *NofalsesharingE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubtreeAsShared() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared/*": {
@@ -156,7 +93,7 @@ func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubt
 	s.ShouldFailWith("shared/contracts/http/http.go", "X only used by: feature/api", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclaration() {
+func (s *NofalsesharingE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclaration() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared/lib": {},
@@ -181,7 +118,7 @@ func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclar
 	s.ShouldPass()
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
+func (s *NofalsesharingE2ESuite) TestSharedPackageWithSingleConsumerFails() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -213,7 +150,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
 	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses() {
+func (s *NofalsesharingE2ESuite) TestSharedPackageWithMultipleConsumersPasses() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -250,7 +187,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses()
 	s.ShouldPass()
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsumerCount() {
+func (s *NofalsesharingE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsumerCount() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -284,7 +221,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsume
 	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
+func (s *NofalsesharingE2ESuite) TestSharedPackageWithNoConsumersFails() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -309,7 +246,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
 	s.ShouldFailWith("shared/util.go", "Value not used by any entity", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() {
+func (s *NofalsesharingE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -343,7 +280,7 @@ func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() 
 	s.ShouldFailWith("shared/util.go", "Value only used by: featurea", "Must be used by 2+ entities")
 }
 
-func (s *BoundarycontrolE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFailSeparately() {
+func (s *NofalsesharingE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFailSeparately() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -386,7 +323,7 @@ func (s *BoundarycontrolE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFa
 	)
 }
 
-func (s *BoundarycontrolE2ESuite) TestInternalSharedPackageReferenceCountsAsConsumer() {
+func (s *NofalsesharingE2ESuite) TestInternalSharedPackageReferenceCountsAsConsumer() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -414,7 +351,7 @@ func (s *BoundarycontrolE2ESuite) TestInternalSharedPackageReferenceCountsAsCons
 	s.ShouldPass()
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoExportedSymbolsProducesNoDiagnostics() {
+func (s *NofalsesharingE2ESuite) TestSharedPackageWithNoExportedSymbolsProducesNoDiagnostics() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
@@ -439,7 +376,7 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoExportedSymbolsProduces
 	s.ShouldPass()
 }
 
-func (s *BoundarycontrolE2ESuite) TestExportedSymbolFormsUsingTypeInfo() {
+func (s *NofalsesharingE2ESuite) TestExportedSymbolFormsUsingTypeInfo() {
 	s.GivenConfig(gounslop.Config{
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"strings"
 
+	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -22,15 +23,9 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 	}
 
 	var entries []testEntry
-	idx := 0
 	for _, d := range file.Decls {
 		fn, ok := d.(*ast.FuncDecl)
-		if !ok {
-			idx++
-			continue
-		}
-		if fn.Recv != nil {
-			idx++
+		if !ok || fn.Recv != nil {
 			continue
 		}
 
@@ -38,10 +33,9 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 		entries = append(entries, testEntry{
 			name:  fn.Name.Name,
 			node:  fn,
-			index: idx,
+			index: len(entries),
 			kind:  kind,
 		})
-		idx++
 	}
 
 	if len(entries) == 0 {
@@ -68,7 +62,7 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 						Pos:     e.node.Pos(),
 						Message: "Place TestMain first in test file.",
 					}
-					fix := buildSwapFix(pass.Fset, file, src, other.node, e.node)
+					fix := analyzer.BuildSwapFix(pass.Fset, file, src, other.node, e.node)
 					if fix != nil {
 						diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 					}

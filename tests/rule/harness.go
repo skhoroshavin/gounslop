@@ -1,4 +1,4 @@
-package ruletest
+package rule
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/skhoroshavin/gounslop/pkg/gounslop"
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 )
@@ -20,14 +21,12 @@ import (
 type Suite struct {
 	suite.Suite
 
-	EnableOnly     []string
 	ModulePath     string
 	GoVersion      string
 	WriteRootGoMod bool
 
 	files          map[string]string
-	settings       GounslopSettings
-	workspace      string
+	settings       gounslop.Config
 	lastResult     *Result
 	lastTargetPath string
 	codeCounter    int
@@ -43,17 +42,17 @@ type Result struct {
 }
 
 func (s *Suite) SetupTest() {
-	s.EnableOnly = nil
+	s.ModulePath = ""
+	s.GoVersion = ""
+	s.WriteRootGoMod = true
 	s.files = make(map[string]string)
-	s.settings = GounslopSettings{}
-	s.workspace = ""
+	s.settings = gounslop.Config{}
 	s.lastResult = nil
 	s.lastTargetPath = ""
 	s.codeCounter = 0
-	s.WriteRootGoMod = true
 }
 
-func (s *Suite) GivenConfig(settings GounslopSettings) {
+func (s *Suite) GivenConfig(settings gounslop.Config) {
 	s.T().Helper()
 
 	s.settings = settings
@@ -80,10 +79,6 @@ func (s *Suite) GivenFile(path string, lines ...string) {
 
 	if path == "" {
 		s.T().Fatal("file path is required")
-	}
-
-	if s.files == nil {
-		s.files = make(map[string]string)
 	}
 
 	s.files[path] = joinLines(lines...)
@@ -167,7 +162,6 @@ func (s *Suite) run(path string, fix bool) {
 	scenario := scenarioInput{
 		ModulePath:     s.ModulePath,
 		GoVersion:      s.GoVersion,
-		EnableOnly:     s.EnableOnly,
 		Files:          copyStringMap(s.files),
 		Settings:       s.settings,
 		WriteRootGoMod: s.WriteRootGoMod,
@@ -181,13 +175,12 @@ func (s *Suite) run(path string, fix bool) {
 
 	var result Result
 	if fix {
-		result = runCustomGCLFix(s.T(), workspace)
+		result = runCustomGCL(s.T(), workspace, true)
 		result.FixedFiles = readFixedFiles(s.T(), workspace, scenario.Files)
 	} else {
-		result = runCustomGCL(s.T(), workspace)
+		result = runCustomGCL(s.T(), workspace, false)
 	}
 
-	s.workspace = workspace
 	s.lastTargetPath = path
 	s.lastResult = &result
 }
@@ -225,7 +218,7 @@ func newWorkspace(t testing.TB) string {
 	return workspace
 }
 
-func runCustomGCL(t testing.TB, workspace string) Result {
+func runCustomGCL(t testing.TB, workspace string, fix bool) Result {
 	t.Helper()
 
 	release := acquireCustomGCLLock(t)
@@ -236,31 +229,16 @@ func runCustomGCL(t testing.TB, workspace string) Result {
 		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
 	}
 
-	args := append([]string{"run", "--default=none"}, lintTargets(t, workspace)...)
+	args := []string{"run", "--default=none"}
+	if fix {
+		args = append(args, "--fix")
+	}
+	args = append(args, lintTargets(t, workspace)...)
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
 	return runCommand(t, cmd, workspace, "running custom-gcl")
-}
-
-func runCustomGCLFix(t testing.TB, workspace string) Result {
-	t.Helper()
-
-	release := acquireCustomGCLLock(t)
-	defer release()
-
-	binaryPath := filepath.Join(repoRoot(), "custom-gcl")
-	if _, err := os.Stat(binaryPath); err != nil {
-		t.Fatalf("custom-gcl binary is required at %s; run `make custom-gcl` first", binaryPath)
-	}
-
-	args := append([]string{"run", "--default=none", "--fix"}, lintTargets(t, workspace)...)
-	cmd := exec.Command(binaryPath, args...)
-	cmd.Dir = workspace
-	cmd.Env = append(os.Environ(), "NO_COLOR=1")
-
-	return runCommand(t, cmd, workspace, "running custom-gcl --fix")
 }
 
 func runCommand(t testing.TB, cmd *exec.Cmd, workspace string, fatalPrefix string) Result {
@@ -280,20 +258,15 @@ func runCommand(t testing.TB, cmd *exec.Cmd, workspace string, fatalPrefix strin
 	}
 	if err != nil {
 		result.Error = err.Error()
+
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("%s: %v", fatalPrefix, err)
+		}
 	}
 	result.Output = strings.TrimSpace(strings.Join(nonEmpty(result.Stdout, result.Stderr), "\n"))
 
-	if err == nil {
-		return result
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return result
-	}
-
-	t.Fatalf("%s: %v", fatalPrefix, err)
-	return Result{}
+	return result
 }
 
 func readFixedFiles(t testing.TB, workspace string, files map[string]string) map[string]string {
@@ -347,8 +320,6 @@ func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 		t.Fatal("at least one file is required")
 	}
 
-	validateEnableOnly(t, scenario.EnableOnly)
-
 	files := copyStringMap(scenario.Files)
 	if scenario.WriteRootGoMod {
 		if _, ok := files["go.mod"]; !ok {
@@ -379,8 +350,8 @@ func renderConfig(scenario scenarioInput) string {
 	const linterName = "gounslop"
 
 	type customLinter struct {
-		Type     string           `yaml:"type"`
-		Settings GounslopSettings `yaml:"settings,omitempty"`
+		Type     string          `yaml:"type"`
+		Settings gounslop.Config `yaml:"settings,omitempty"`
 	}
 
 	type lintersSettings struct {
@@ -397,8 +368,6 @@ func renderConfig(scenario scenarioInput) string {
 		Linters linters `yaml:"linters"`
 	}
 
-	settings := mergeSettings(scenario.EnableOnly, scenario.Settings)
-
 	cfg := config{
 		Version: "2",
 		Linters: linters{
@@ -407,7 +376,7 @@ func renderConfig(scenario scenarioInput) string {
 				Custom: map[string]customLinter{
 					linterName: {
 						Type:     "module",
-						Settings: settings,
+						Settings: scenario.Settings,
 					},
 				},
 			},
@@ -419,56 +388,6 @@ func renderConfig(scenario scenarioInput) string {
 		panic(fmt.Sprintf("rendering config: %v", err))
 	}
 	return string(out)
-}
-
-func mergeSettings(enableOnly []string, givenConfig GounslopSettings) GounslopSettings {
-	disable := disableComplement(enableOnly)
-
-	if len(disable) == 0 && givenConfig.Disable == nil && givenConfig.Architecture == nil {
-		return GounslopSettings{}
-	}
-
-	merged := GounslopSettings{
-		Architecture: givenConfig.Architecture,
-	}
-	if len(disable) > 0 {
-		merged.Disable = disable
-	} else {
-		merged.Disable = givenConfig.Disable
-	}
-
-	return merged
-}
-
-func disableComplement(enableOnly []string) []string {
-	if len(enableOnly) == 0 {
-		return nil
-	}
-
-	var disable []string
-	for _, name := range analyzerNames {
-		if !slices.Contains(enableOnly, name) {
-			disable = append(disable, name)
-		}
-	}
-	return disable
-}
-
-func validateEnableOnly(t testing.TB, enableOnly []string) {
-	t.Helper()
-
-	for _, name := range enableOnly {
-		if !slices.Contains(analyzerNames, name) {
-			t.Fatalf("EnableOnly contains unknown analyzer %q; known: %v", name, analyzerNames)
-		}
-	}
-}
-
-var analyzerNames = []string{
-	"boundarycontrol",
-	"nospecialunicode",
-	"nounicodeescape",
-	"readfriendlyorder",
 }
 
 func renderGoMod(scenario scenarioInput) string {
@@ -521,9 +440,8 @@ func renderGoWork(scenario scenarioInput, files map[string]string) string {
 type scenarioInput struct {
 	ModulePath     string
 	GoVersion      string
-	EnableOnly     []string
 	Files          map[string]string
-	Settings       GounslopSettings
+	Settings       gounslop.Config
 	WriteRootGoMod bool
 }
 
@@ -562,11 +480,7 @@ func moduleDirs(files map[string]string) []string {
 			continue
 		}
 
-		dir := filepath.Dir(path)
-		if dir == "." {
-			dir = ""
-		}
-		dirSet[dir] = struct{}{}
+		dirSet[filepath.Dir(path)] = struct{}{}
 	}
 
 	if len(dirSet) == 0 {
@@ -578,12 +492,6 @@ func moduleDirs(files map[string]string) []string {
 		dirs = append(dirs, dir)
 	}
 	slices.Sort(dirs)
-
-	for i, dir := range dirs {
-		if dir == "" {
-			dirs[i] = "."
-		}
-	}
 
 	return dirs
 }
@@ -673,10 +581,6 @@ func joinLines(lines ...string) string {
 }
 
 func copyStringMap(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
-	}
-
 	dst := make(map[string]string, len(src))
 	for key, value := range src {
 		dst[key] = value

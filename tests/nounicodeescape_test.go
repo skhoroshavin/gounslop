@@ -1,25 +1,23 @@
-package nounicodeescape_test
+package tests
 
 import (
 	"testing"
 
-	"github.com/skhoroshavin/gounslop/internal/ruletest"
+	"github.com/skhoroshavin/gounslop/tests/rule"
 	"github.com/stretchr/testify/suite"
 )
 
 type NounicodeescapeE2ESuite struct {
-	ruletest.Suite
+	rule.Suite
 }
 
 func (s *NounicodeescapeE2ESuite) SetupTest() {
 	s.Suite.SetupTest()
-	s.EnableOnly = []string{"nounicodeescape"}
 	s.ModulePath = "example.com/mod"
 }
 
-func TestPluginE2E(t *testing.T) {
-	s := new(NounicodeescapeE2ESuite)
-	suite.Run(t, s)
+func TestNounicodeescapeE2E(t *testing.T) {
+	suite.Run(t, new(NounicodeescapeE2ESuite))
 }
 
 func (s *NounicodeescapeE2ESuite) TestLiteralUnicodePasses() {
@@ -27,7 +25,7 @@ func (s *NounicodeescapeE2ESuite) TestLiteralUnicodePasses() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"—\"",
+		"\t_ = \"é\"",
 		"}",
 	)
 	s.ShouldPass()
@@ -38,7 +36,7 @@ func (s *NounicodeescapeE2ESuite) TestEscapeFlagged() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"\\u2014\"",
+		"\t_ = \"\\u00e9\"",
 		"}",
 	)
 	s.ShouldFailWith("\\uXXXX")
@@ -60,7 +58,7 @@ func (s *NounicodeescapeE2ESuite) TestLongEscapeFlagged() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"\\U00002014\"",
+		"\t_ = \"\\U000000e9\"",
 		"}",
 	)
 	s.ShouldFailWith("\\uXXXX")
@@ -93,7 +91,7 @@ func (s *NounicodeescapeE2ESuite) TestUnicodeEscapeFix() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"\\u2014\"",
+		"\t_ = \"\\u00e9\"",
 		"}",
 	)
 	s.ShouldPass()
@@ -101,7 +99,7 @@ func (s *NounicodeescapeE2ESuite) TestUnicodeEscapeFix() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"—\"",
+		"\t_ = \"é\"",
 		"}",
 	)
 }
@@ -111,7 +109,7 @@ func (s *NounicodeescapeE2ESuite) TestMixedSafeUnsafeFix() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"hello \\u2014\\u0001 world\"",
+		"\t_ = \"hello \\u00e9\\u0001 world\"",
 		"}",
 	)
 	s.ShouldFailWith()
@@ -119,7 +117,7 @@ func (s *NounicodeescapeE2ESuite) TestMixedSafeUnsafeFix() {
 		"package main",
 		"",
 		"func main() {",
-		"\t_ = \"hello \\u2014\\u0001 world\"",
+		"\t_ = \"hello \\u00e9\\u0001 world\"",
 		"}",
 	)
 }

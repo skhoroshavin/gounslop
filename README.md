@@ -49,11 +49,10 @@ The remaining analyzers need explicit configuration:
 ```yaml
 linters:
   enable:
-    - boundarycontrol
-    - readfriendlyorder
+    - gounslop
   settings:
     custom:
-      boundarycontrol:
+      gounslop:
         type: "module"
         settings:
           architecture:
@@ -63,8 +62,6 @@ linters:
               imports: ["pkg/+", "internal/*", "pkg/shared"]
             "pkg/repository/*":
               imports: ["pkg/models/+", "pkg/utils"]
-      readfriendlyorder:
-        type: "module"
 ```
 
 ## Analyzers
@@ -101,9 +98,17 @@ copyright := "© 2025"
 arrow := "→"
 ```
 
-### `boundarycontrol`
+### `importcontrol`
 
-Enforces selector-based package import boundaries inside the nearest enclosing Go module. `boundarycontrol` auto-discovers module scope from `go.mod`, ignores standard-library and third-party imports outside that module, excludes nested-module imports owned by a deeper `go.mod`, enforces same-scope deep-import restrictions, and flags shared packages that are not actually shared.
+Enforces selector-based package import boundaries inside the nearest enclosing Go module. `importcontrol` auto-discovers module scope from `go.mod`, ignores standard-library and third-party imports outside that module, excludes nested-module imports owned by a deeper `go.mod`, and enforces same-scope deep-import restrictions.
+
+### `exportcontrol`
+
+Enforces export contract patterns for top-level declarations. When a package selector has `exports` patterns, only exported symbols matching those regex patterns are allowed.
+
+### `nofalsesharing`
+
+Detects exported symbols in shared packages that are not actually used by 2+ entities. A package marked with `shared: true` should share its symbols broadly; if a symbol is only used by one consumer (or not at all), it should either be unexported or moved.
 
 #### Settings
 
@@ -145,10 +150,10 @@ Supported `imports` selector forms:
 ```yaml
 linters:
   enable:
-    - boundarycontrol
+    - gounslop
   settings:
     custom:
-      boundarycontrol:
+      gounslop:
         type: "module"
         settings:
           architecture:
@@ -167,13 +172,12 @@ Notes:
 
 - Unmatched in-module packages behave as `imports: []`.
 - Imports from a package to its immediate child package stay allowed even without an explicit rule.
-- Same-scope deep imports are rejected directly by `boundarycontrol`.
+- Same-scope deep imports are rejected directly by `importcontrol`.
 - Module scope comes from the nearest enclosing `go.mod`; nested modules are treated as out of scope for the parent module.
 - A selector with `exports` enables export-contract checks for exported top-level package declarations owned by that selector.
 - Export-contract patterns use full-name regex matching; exported methods are excluded from this check.
 - A selector with `shared: true` marks its owned package subtree for exported-symbol-level false-sharing checks.
 - Shared-package consumers are counted per exported symbol by direct non-test importing package path, with same-package references also counting as a consumer for that symbol.
-- There is no separate `nofalsesharing` plugin or selector-level `mode` setting anymore.
 
 ### `readfriendlyorder`
 
@@ -221,7 +225,7 @@ See [AGENTS.md](./AGENTS.md) for development setup and guidelines.
 
 ### Test Strategy
 
-All analyzer tests use the shared plugin E2E harness (`internal/ruletest`), which runs each scenario through the real `custom-gcl` binary against temporary Go workspaces. Scenarios are defined inline in `plugin_test.go` files — no `testdata/` directories or `analysistest` fixtures.
+All analyzer tests use the shared plugin E2E harness (`tests/rule`), which runs each scenario through the real `custom-gcl` binary against temporary Go workspaces. Scenarios are defined inline in `tests/<analyzer>_test.go` files — no `testdata/` directories or `analysistest` fixtures.
 
 Run repository checks with:
 

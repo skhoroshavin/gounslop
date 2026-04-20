@@ -1,25 +1,23 @@
-package readfriendlyorder_test
+package tests
 
 import (
 	"testing"
 
-	"github.com/skhoroshavin/gounslop/internal/ruletest"
+	"github.com/skhoroshavin/gounslop/tests/rule"
 	"github.com/stretchr/testify/suite"
 )
 
 type ReadfriendlyorderE2ESuite struct {
-	ruletest.Suite
+	rule.Suite
 }
 
 func (s *ReadfriendlyorderE2ESuite) SetupTest() {
 	s.Suite.SetupTest()
-	s.EnableOnly = []string{"readfriendlyorder"}
 	s.ModulePath = "example.com/mod"
 }
 
-func TestPluginE2E(t *testing.T) {
-	s := new(ReadfriendlyorderE2ESuite)
-	suite.Run(t, s)
+func TestReadfriendlyorderE2E(t *testing.T) {
+	suite.Run(t, new(ReadfriendlyorderE2ESuite))
 }
 
 func (s *ReadfriendlyorderE2ESuite) TestCorrectTopLevelOrderPasses() {

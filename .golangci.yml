@@ -23,10 +23,14 @@ linters:
             - nounicodeescape
           architecture:
             plugin:
+              imports: ["pkg/gounslop"]
+            pkg/analyzer:
+              imports: []
+            pkg/gounslop:
               imports: ["pkg/*"]
             pkg/*:
-              imports: ["internal/*", "pkg/gounslop"]
-            internal/*:
+              imports: ["pkg/analyzer"]
+            tests:
               imports: ["pkg/gounslop"]
 
 linters-settings:
