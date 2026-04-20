@@ -22,12 +22,12 @@ func BuildAnalyzers(cfg Config) ([]*analysis.Analyzer, error) {
 		return nil, err
 	}
 
-	compiledCfg, err := compileArchitecture(cfg)
+	compiledCfg, err := compileConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	modCache := analyzer.NewModuleContextCache()
+	modCache := newModuleContextCache()
 	fsCache := nofalsesharing.NewCache()
 
 	all := []*analysis.Analyzer{
@@ -96,28 +96,8 @@ func filterByDisable(analyzers []*analysis.Analyzer, disable []string) []*analys
 	return filtered
 }
 
-func compileArchitecture(cfg Config) (analyzer.CompiledConfig, error) {
-	if cfg.Architecture == nil {
-		return analyzer.CompiledConfig{}, nil
-	}
-
-	policies := make(map[string]analyzer.Policy, len(cfg.Architecture))
-	for selector, policy := range cfg.Architecture {
-		if policy.Mode != nil {
-			return analyzer.CompiledConfig{}, fmt.Errorf(
-				"gounslop: architecture[%q].mode is unsupported; migrated false-sharing counts consumers by importing package path only",
-				selector,
-			)
-		}
-
-		policies[selector] = analyzer.Policy{
-			Imports: slices.Clone(policy.Imports),
-			Exports: slices.Clone(policy.Exports),
-			Shared:  policy.Shared,
-		}
-	}
-
-	return analyzer.CompileConfig(analyzer.NormalizeConfig(policies))
+func newModuleContextCache() *analyzer.ModuleContextCache {
+	return &analyzer.ModuleContextCache{}
 }
 
 const (

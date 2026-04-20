@@ -23,10 +23,6 @@ type ModuleContextCache struct {
 	cache sync.Map
 }
 
-func NewModuleContextCache() *ModuleContextCache {
-	return &ModuleContextCache{}
-}
-
 func (c *ModuleContextCache) Discover(pass *analysis.Pass) (ModuleContext, error) {
 	if len(pass.Files) == 0 {
 		return ModuleContext{}, fmt.Errorf("no files available to discover module scope")
@@ -139,15 +135,15 @@ func discoverNestedModulePaths(moduleDir string) ([]string, error) {
 	return nestedModulePaths, nil
 }
 
-func ClassifyImportPath(importPath string, moduleCtx ModuleContext) (string, ImportOwnership) {
+func ClassifyImportPath(importPath string, moduleCtx ModuleContext) (string, importOwnership) {
 	importedRel, ok := RelativeModulePath(importPath, moduleCtx.Path)
 	if !ok {
-		return "", ImportOwnershipOutsideModule
+		return "", importOwnershipOutsideModule
 	}
 
 	for _, nestedModulePath := range moduleCtx.NestedModulePaths {
 		if importPath == nestedModulePath || strings.HasPrefix(importPath, nestedModulePath+"/") {
-			return "", ImportOwnershipNestedModule
+			return "", importOwnershipNestedModule
 		}
 	}
 
@@ -168,10 +164,10 @@ func readModulePath(goModPath string) (string, error) {
 	return modulePath, nil
 }
 
-type ImportOwnership int
+type importOwnership int
 
 const (
-	ImportOwnershipOutsideModule ImportOwnership = iota
+	importOwnershipOutsideModule importOwnership = iota
 	ImportOwnershipCurrentModule
-	ImportOwnershipNestedModule
+	importOwnershipNestedModule
 )

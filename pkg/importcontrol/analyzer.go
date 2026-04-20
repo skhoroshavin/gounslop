@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"strconv"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -39,17 +40,17 @@ func Run(pass *analysis.Pass, modCache *analyzer.ModuleContextCache, cfg analyze
 			return
 		}
 
-		if analyzer.IsSameScopeTooDeep(importerRel, importedRel) {
+		if isSameScopeTooDeep(importerRel, importedRel) {
 			pass.Reportf(imp.Pos(), "%s is too deep (max 1 level below importer within same scope).", importPath)
 			return
 		}
 
-		if analyzer.IsImmediateChildImport(importerRel, importedRel) {
+		if isImmediateChildImport(importerRel, importedRel) {
 			return
 		}
 
 		owner, found := analyzer.ResolveOwner(cfg.Policies, importerRel)
-		if found && analyzer.MatchesImportSelectors(owner.Imports, importedRel) {
+		if found && matchesImportSelectors(owner.Imports, importedRel) {
 			return
 		}
 
@@ -57,4 +58,89 @@ func Run(pass *analysis.Pass, modCache *analyzer.ModuleContextCache, cfg analyze
 	})
 
 	return nil, nil
+}
+
+func isSameScopeTooDeep(importerRel, importedRel string) bool {
+	importerScope := scopeFromRelPath(importerRel)
+	importedScope := scopeFromRelPath(importedRel)
+	if importerScope != importedScope {
+		return false
+	}
+
+	importerDepth := depthWithinScope(importerRel, importerScope)
+	importedDepth := depthWithinScope(importedRel, importedScope)
+	return importedDepth > importerDepth+1
+}
+
+func scopeFromRelPath(relPath string) string {
+	parts := strings.SplitN(relPath, "/", 2)
+	return parts[0]
+}
+
+func depthWithinScope(relPath, scope string) int {
+	suffix := strings.TrimPrefix(relPath, scope+"/")
+	if suffix == relPath {
+		return 0
+	}
+
+	return strings.Count(suffix, "/") + 1
+}
+
+func isImmediateChildImport(importerRel, importedRel string) bool {
+	if importedRel == "" {
+		return false
+	}
+
+	prefix := importerRel
+	if prefix != "" {
+		prefix += "/"
+	}
+	if !strings.HasPrefix(importedRel, prefix) {
+		return false
+	}
+
+	return segmentCount(strings.TrimPrefix(importedRel, prefix)) == 1
+}
+
+func segmentCount(path string) int {
+	if path == "" {
+		return 0
+	}
+
+	return strings.Count(path, "/") + 1
+}
+
+func matchesImportSelectors(selectors []analyzer.ParsedSelector, importedRel string) bool {
+	for _, selector := range selectors {
+		if matchesImportSelector(selector, importedRel) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchesImportSelector(selector analyzer.ParsedSelector, importedRel string) bool {
+	switch selector.Kind {
+	case analyzer.SelectorKindRoot:
+		return importedRel == ""
+	case analyzer.SelectorKindExact:
+		return importedRel == selector.Base
+	case analyzer.SelectorKindChildWildcard:
+		return isDirectChild(importedRel, selector.Base)
+	case analyzer.SelectorKindSelfOrChild:
+		return importedRel == selector.Base || isDirectChild(importedRel, selector.Base)
+	default:
+		return false
+	}
+}
+
+func isDirectChild(importedRel, base string) bool {
+	prefix := base + "/"
+	if !strings.HasPrefix(importedRel, prefix) {
+		return false
+	}
+
+	remainder := strings.TrimPrefix(importedRel, prefix)
+	return remainder != "" && !strings.Contains(remainder, "/")
 }

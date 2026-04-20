@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"strings"
 
-	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 )
@@ -62,8 +61,8 @@ func reportMethodOrdering(pass *analysis.Pass, file *ast.File, insp *inspector.I
 						ctor.Name.Name, typeName),
 				}
 				targetDecl := file.Decls[typeIdx]
-				_, insertOffset := analyzer.DeclRange(pass.Fset, src, targetDecl)
-				fix := analyzer.BuildMoveFix(pass.Fset, file, src, ctor, insertOffset)
+				_, insertOffset := declRange(pass.Fset, src, targetDecl)
+				fix := buildMoveFix(pass.Fset, file, src, ctor, insertOffset)
 				if fix != nil {
 					diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 				}
@@ -86,7 +85,7 @@ func reportMethodDependencyOrder(pass *analysis.Pass, meths []methodEntry, src [
 					m.name, consumer.name),
 			}
 			file := findFileForNode(pass, m.node)
-			fix := analyzer.BuildSwapFix(pass.Fset, file, src, m.node, consumer.node)
+			fix := buildSwapFix(pass.Fset, file, src, m.node, consumer.node)
 			if fix != nil {
 				diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 			}

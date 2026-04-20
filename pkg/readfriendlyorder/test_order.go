@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"strings"
 
-	"github.com/skhoroshavin/gounslop/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -62,7 +61,7 @@ func reportTestOrdering(pass *analysis.Pass, file *ast.File, src []byte) {
 						Pos:     e.node.Pos(),
 						Message: "Place TestMain first in test file.",
 					}
-					fix := analyzer.BuildSwapFix(pass.Fset, file, src, other.node, e.node)
+					fix := buildSwapFix(pass.Fset, file, src, other.node, e.node)
 					if fix != nil {
 						diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 					}

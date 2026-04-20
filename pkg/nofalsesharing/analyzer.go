@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"sort"
 	"strings"
 	"sync"
 
@@ -36,7 +37,7 @@ func Run(pass *analysis.Pass, modCache *analyzer.ModuleContextCache, fsCache *Ca
 	}
 
 	definitions := collectPackageSymbolDefinitions(pass.Files, pass.TypesInfo, pass.Pkg)
-	for _, key := range analyzer.SortedMapKeys(packageDiagnostics) {
+	for _, key := range sortedMapKeys(packageDiagnostics) {
 		if def, ok := definitions[key]; ok {
 			pass.Reportf(def.pos, "%s", packageDiagnostics[key])
 		}
@@ -282,9 +283,9 @@ func walkReferencedObjects(node ast.Node, info *types.Info, visit func(types.Obj
 
 func falseSharingDiagnostics(sharedPackages map[string]*sharedPackageEntry) map[string]map[string]string {
 	diagnostics := make(map[string]map[string]string)
-	for _, pkgPath := range analyzer.SortedMapKeys(sharedPackages) {
+	for _, pkgPath := range sortedMapKeys(sharedPackages) {
 		entry := sharedPackages[pkgPath]
-		for _, key := range analyzer.SortedMapKeys(entry.symbols) {
+		for _, key := range sortedMapKeys(entry.symbols) {
 			symbol := entry.symbols[key]
 			consumerCount := len(symbol.externalConsumers)
 			if symbol.hasInternalConsumer {
@@ -302,7 +303,7 @@ func falseSharingDiagnostics(sharedPackages map[string]*sharedPackageEntry) map[
 			case len(symbol.externalConsumers) == 0:
 				reason = "only used by internal declaration in shared package"
 			default:
-				consumers := analyzer.SortedMapKeys(symbol.externalConsumers)
+				consumers := sortedMapKeys(symbol.externalConsumers)
 				reason = "only used by: " + consumers[0]
 			}
 
@@ -522,4 +523,13 @@ func hasNonTestFiles(filePaths []string) bool {
 	}
 
 	return false
+}
+
+func sortedMapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
