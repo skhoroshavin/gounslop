@@ -45,11 +45,11 @@ The plugin constructor SHALL validate that every entry in the `disable` list mat
 - **THEN** the constructor returns an error mentioning the unknown analyzer name
 
 ### Requirement: Architecture settings use flat top-level key
-The plugin settings SHALL accept an `architecture` field at the top level of the settings map. When present, the plugin constructor SHALL decode and validate the architecture configuration and configure the `importcontrol`, `exportcontrol`, and `nofalsesharing` analyzers before including them in the `BuildAnalyzers` return slice.
+The plugin settings SHALL accept an `architecture` field at the top level of the settings map. When present, the plugin constructor SHALL decode and validate the architecture configuration and configure the `importcontrol`, `exportcontrol`, and `nofalsesharing` analyzers' flags before including them in the `BuildAnalyzers` return slice.
 
 #### Scenario: Architecture settings are applied to boundarycontrol-derived analyzers
 - **WHEN** the plugin is constructed with `{"architecture": {"pkg/*": {"imports": ["internal/*"]}}}`
-- **THEN** the `importcontrol`, `exportcontrol`, and `nofalsesharing` analyzers are configured with the decoded architecture map
+- **THEN** the `importcontrol`, `exportcontrol`, and `nofalsesharing` analyzers' `architecture` flags are set to the JSON-encoded architecture map
 
 #### Scenario: Invalid architecture settings produce a startup error
 - **WHEN** the plugin is constructed with `{"architecture": {"pkg/*": {"imports": "not-a-list"}}}`

@@ -16,10 +16,10 @@ The repository SHALL provide a reusable E2E test harness that can materialize a 
 - **THEN** the harness materializes that workspace layout and runs the selected plugin tests against it without requiring external fixture directories
 
 ### Requirement: Plugin E2E harness integrates with testify suites
-The repository SHALL provide a `rule.Suite` base suite that embeds `testify/suite.Suite` and exposes `GivenConfig`, `GivenFile`, `LintFile`, `LintCode`, `FixFile`, `FixCode`, `ShouldPass`, `ShouldFailWith`, and `ShouldProduce` as suite methods. The suite SHALL hardcode the linter name as `gounslop` internally. `GivenConfig` SHALL accept a typed config struct (the same struct used by the plugin's settings decoder) instead of `map[string]any`.
+The repository SHALL provide a `ruletest.Suite` base suite that embeds `testify/suite.Suite` and exposes `GivenConfig`, `GivenFile`, `LintFile`, `LintCode`, `FixFile`, `FixCode`, `ShouldPass`, `ShouldFailWith`, and `ShouldProduce` as suite methods. The suite SHALL hardcode the linter name as `gounslop` internally. `GivenConfig` SHALL accept a typed config struct (the same struct used by the plugin's settings decoder) instead of `map[string]any`.
 
 #### Scenario: Analyzer suite embeds ruletest suite
-- **WHEN** an analyzer test suite embeds `rule.Suite`
+- **WHEN** an analyzer test suite embeds `ruletest.Suite`
 - **THEN** its test methods can define files, execute one lint or fix operation, and assert the result without private `runScenario` or `runFixScenario` helpers
 
 #### Scenario: Per-test state resets automatically
@@ -35,7 +35,7 @@ The repository SHALL provide a `rule.Suite` base suite that embeds `testify/suit
 - **THEN** the harness treats it as no custom settings, equivalent to the previous `nil` `map[string]any` behavior
 
 ### Requirement: Plugin E2E scenarios are defined inline
-The repository SHALL allow E2E scenarios to define their file set, plugin settings, execution target, and expected outcome inline through `rule.Suite` methods without requiring fixture-directory inputs or raw `Scenario` structs. Plugin settings SHALL be expressed as typed struct literals rather than `map[string]any` literals.
+The repository SHALL allow E2E scenarios to define their file set, plugin settings, execution target, and expected outcome inline through `ruletest.Suite` methods without requiring fixture-directory inputs or raw `Scenario` structs. Plugin settings SHALL be expressed as typed struct literals rather than `map[string]any` literals.
 
 #### Scenario: Single-file lint case stays compact
 - **WHEN** a contributor defines inline code with `LintCode`
@@ -65,7 +65,7 @@ The harness `renderConfig` function SHALL generate `.golangci.yml` content that 
 - **THEN** the rendered config enables `gounslop` with empty settings
 
 ### Requirement: Plugin E2E results are actionable
-The harness SHALL store the most recent lint or fix result on `rule.Suite` and expose assertion helpers that report stable, human-readable failures. It SHALL normalize temporary-path details so tests can assert on stable diagnostics, failure fragments, and fixed output.
+The harness SHALL store the most recent lint or fix result on `ruletest.Suite` and expose assertion helpers that report stable, human-readable failures. It SHALL normalize temporary-path details so tests can assert on stable diagnostics, failure fragments, and fixed output.
 
 #### Scenario: Passing run is asserted from the suite
 - **WHEN** a test method executes `LintFile` or `LintCode` and then calls `ShouldPass`

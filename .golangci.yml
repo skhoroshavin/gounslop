@@ -25,7 +25,7 @@ linters:
             plugin:
               imports: ["pkg/gounslop"]
             pkg/analyzer:
-              imports: []
+              shared: true
             pkg/gounslop:
               imports: ["pkg/*"]
             pkg/*:
