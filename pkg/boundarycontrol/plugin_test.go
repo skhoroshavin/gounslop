@@ -23,10 +23,10 @@ func TestPluginE2E(t *testing.T) {
 }
 
 func (s *BoundarycontrolE2ESuite) TestInvalidKeySelectorFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/+": map[string]any{
-				"imports": []string{"shared/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/+": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -40,10 +40,10 @@ func (s *BoundarycontrolE2ESuite) TestInvalidKeySelectorFailsClearly() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestExactKeyOwnsSubtree() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/api": map[string]any{
-				"imports": []string{"shared/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/api": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -62,10 +62,10 @@ func (s *BoundarycontrolE2ESuite) TestExactKeyOwnsSubtree() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestWildcardKeyOwnsDirectChildSubtree() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/*": map[string]any{
-				"imports": []string{"shared/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/*": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -84,10 +84,10 @@ func (s *BoundarycontrolE2ESuite) TestWildcardKeyOwnsDirectChildSubtree() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestWildcardDoesNotOwnParentPackage() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/*": map[string]any{
-				"imports": []string{"shared/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/*": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -106,13 +106,13 @@ func (s *BoundarycontrolE2ESuite) TestWildcardDoesNotOwnParentPackage() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestExactSelectorOverridesWildcardOwner() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/*": map[string]any{
-				"imports": []string{"shared/general"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/*": {
+				Imports: []string{"shared/general"},
 			},
-			"feature/api": map[string]any{
-				"imports": []string{"shared/contracts"},
+			"feature/api": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -131,13 +131,13 @@ func (s *BoundarycontrolE2ESuite) TestExactSelectorOverridesWildcardOwner() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestWildcardOverridesParentExactForChildSubtree() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature": map[string]any{
-				"imports": []string{"shared/root"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature": {
+				Imports: []string{"shared/root"},
 			},
-			"feature/*": map[string]any{
-				"imports": []string{"shared/contracts"},
+			"feature/*": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -156,10 +156,10 @@ func (s *BoundarycontrolE2ESuite) TestWildcardOverridesParentExactForChildSubtre
 }
 
 func (s *BoundarycontrolE2ESuite) TestUnmatchedImporterHasEmptyImportList() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"imports": []string{"."},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"shared": {
+				Imports: []string{"."},
 			},
 		},
 	})
@@ -178,8 +178,8 @@ func (s *BoundarycontrolE2ESuite) TestUnmatchedImporterHasEmptyImportList() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestUnmatchedPackageIsAllowed() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{},
 	})
 	s.GivenFile("shared/contracts/contracts.go",
 		"package contracts",
@@ -191,10 +191,10 @@ func (s *BoundarycontrolE2ESuite) TestUnmatchedPackageIsAllowed() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorExactMatchesOnlyExactPackage() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/api": map[string]any{
-				"imports": []string{"shared/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/api": {
+				Imports: []string{"shared/contracts"},
 			},
 		},
 	})
@@ -213,10 +213,10 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorExactMatchesOnlyExactPackage
 }
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorChildWildcardMatchesDirectChildOnly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/api": map[string]any{
-				"imports": []string{"shared/*"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/api": {
+				Imports: []string{"shared/*"},
 			},
 		},
 	})
@@ -235,10 +235,10 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorChildWildcardMatchesDirectCh
 }
 
 func (s *BoundarycontrolE2ESuite) TestImportSelectorSelfOrChildMatchesParentAndDirectChildOnly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature/api": map[string]any{
-				"imports": []string{"shared/+"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature/api": {
+				Imports: []string{"shared/+"},
 			},
 		},
 	})
@@ -257,10 +257,10 @@ func (s *BoundarycontrolE2ESuite) TestImportSelectorSelfOrChildMatchesParentAndD
 }
 
 func (s *BoundarycontrolE2ESuite) TestIntegratedDeepImportStillFailsWithinSameScope() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature": map[string]any{
-				"imports": []string{"feature/child/deep"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature": {
+				Imports: []string{"feature/child/deep"},
 			},
 		},
 	})
@@ -279,8 +279,8 @@ func (s *BoundarycontrolE2ESuite) TestIntegratedDeepImportStillFailsWithinSameSc
 }
 
 func (s *BoundarycontrolE2ESuite) TestImmediateChildImportRemainsAllowedWithoutPolicy() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -297,8 +297,8 @@ func (s *BoundarycontrolE2ESuite) TestImmediateChildImportRemainsAllowedWithoutP
 }
 
 func (s *BoundarycontrolE2ESuite) TestExternalImportIsIgnored() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{},
 	})
 	s.GivenFile("feature/consumer.go",
 		"package feature",
@@ -310,10 +310,10 @@ func (s *BoundarycontrolE2ESuite) TestExternalImportIsIgnored() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestDifferentTopLevelImportStillUsesBoundarycontrol() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"featurea": map[string]any{
-				"imports": []string{"shared/+"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"featurea": {
+				Imports: []string{"shared/+"},
 			},
 		},
 	})
@@ -333,10 +333,10 @@ func (s *BoundarycontrolE2ESuite) TestDifferentTopLevelImportStillUsesBoundaryco
 
 func (s *BoundarycontrolE2ESuite) TestNearestGoModDefinesModuleScope() {
 	s.WriteRootGoMod = false
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"internal/*": map[string]any{
-				"imports": []string{"pkg/contracts"},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"internal/*": {
+				Imports: []string{"pkg/contracts"},
 			},
 		},
 	})
@@ -361,10 +361,10 @@ func (s *BoundarycontrolE2ESuite) TestNearestGoModDefinesModuleScope() {
 
 func (s *BoundarycontrolE2ESuite) TestNestedModuleImportIsIgnoredForParentModule() {
 	s.ModulePath = "example.com/root"
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"feature": map[string]any{
-				"imports": []string{},
+	s.GivenConfig(ruletest.GounslopSettings{
+		Architecture: map[string]ruletest.PolicySettings{
+			"feature": {
+				Imports: []string{},
 			},
 		},
 	})

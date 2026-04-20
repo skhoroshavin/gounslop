@@ -16,7 +16,7 @@ The repository SHALL provide a reusable E2E test harness that can materialize a 
 - **THEN** the harness materializes that workspace layout and runs the selected plugin tests against it without requiring external fixture directories
 
 ### Requirement: Plugin E2E harness integrates with testify suites
-The repository SHALL provide a `ruletest.Suite` base suite that embeds `testify/suite.Suite` and exposes `GivenConfig`, `GivenFile`, `LintFile`, `LintCode`, `FixFile`, `FixCode`, `ShouldPass`, `ShouldFailWith`, and `ShouldProduce` as suite methods.
+The repository SHALL provide a `ruletest.Suite` base suite that embeds `testify/suite.Suite` and exposes `GivenConfig`, `GivenFile`, `LintFile`, `LintCode`, `FixFile`, `FixCode`, `ShouldPass`, `ShouldFailWith`, and `ShouldProduce` as suite methods. The suite SHALL hardcode the linter name as `gounslop` internally. The suite SHALL expose an `EnableOnly` field (`[]string`) that controls which analyzers are active for a given test run. When `EnableOnly` is set, the harness SHALL generate a `disable` list in the rendered config containing all known analyzer names except those in `EnableOnly`. `GivenConfig` SHALL accept a typed config struct (the same struct used by the plugin's settings decoder) instead of `map[string]any`.
 
 #### Scenario: Analyzer suite embeds ruletest suite
 - **WHEN** an analyzer test suite embeds `ruletest.Suite` and configures its linter name
@@ -26,8 +26,16 @@ The repository SHALL provide a `ruletest.Suite` base suite that embeds `testify/
 - **WHEN** testify invokes `SetupTest` before a suite test method
 - **THEN** any files, config, temporary workspace state, and previous execution result from a prior test are cleared
 
+#### Scenario: GivenConfig accepts typed struct
+- **WHEN** a test method calls `GivenConfig` with a typed settings struct
+- **THEN** the harness stores the struct and serializes it into the generated `.golangci.yml` without requiring the test author to construct `map[string]any`
+
+#### Scenario: GivenConfig with nil or zero-value config
+- **WHEN** a test method calls `GivenConfig` with the zero value of the settings struct
+- **THEN** the harness treats it as no custom settings, equivalent to the previous `nil` `map[string]any` behavior
+
 ### Requirement: Plugin E2E scenarios are defined inline
-The repository SHALL allow E2E scenarios to define their file set, plugin settings, execution target, and expected outcome inline through `ruletest.Suite` methods without requiring fixture-directory inputs or raw `Scenario` structs.
+The repository SHALL allow E2E scenarios to define their file set, plugin settings, execution target, and expected outcome inline through `ruletest.Suite` methods without requiring fixture-directory inputs or raw `Scenario` structs. Plugin settings SHALL be expressed as typed struct literals rather than `map[string]any` literals.
 
 #### Scenario: Single-file lint case stays compact
 - **WHEN** a contributor defines inline code with `LintCode`
@@ -40,6 +48,32 @@ The repository SHALL allow E2E scenarios to define their file set, plugin settin
 #### Scenario: Inline fix case stays compact
 - **WHEN** a contributor defines inline code with `FixCode` or builds a project with `GivenFile` before `FixFile`
 - **THEN** the contributor can assert the fixed output with `ShouldProduce` without constructing expected fixed-file maps
+
+#### Scenario: Typed config struct is used inline
+- **WHEN** a test author writes a `GivenConfig` call
+- **THEN** they use a typed struct literal (e.g., `GounslopSettings{Architecture: map[string]PolicySettings{...}}`) instead of `map[string]any{"architecture": map[string]any{...}}`
+
+### Requirement: Harness config generation uses the unified gounslop plugin
+The harness `renderConfig` function SHALL generate `.golangci.yml` content that enables the single `gounslop` linter under `linters.settings.custom` with `type: "module"`. The generated settings SHALL merge the `disable` list derived from `EnableOnly` with any test-supplied settings from `GivenConfig`.
+
+#### Scenario: Config renders with disable list and architecture
+- **WHEN** `EnableOnly` is `["boundarycontrol"]` and `GivenConfig` provides `{"architecture": {...}}`
+- **THEN** the rendered config enables `gounslop` with settings containing both the `disable` list and the `architecture` map
+
+#### Scenario: Config renders with no test settings
+- **WHEN** `EnableOnly` is `["nospecialunicode"]` and no `GivenConfig` is called
+- **THEN** the rendered config enables `gounslop` with settings containing only the `disable` list
+
+#### Scenario: Test-supplied disable overrides harness-generated disable
+- **WHEN** `GivenConfig` provides a `disable` key
+- **THEN** the test-supplied `disable` list takes precedence over the harness-generated one from `EnableOnly`
+
+### Requirement: Harness maintains a known analyzer name list
+The harness SHALL maintain an internal list of all known analyzer names for computing the `disable` complement from `EnableOnly`. This list SHALL be updated when new analyzers are added to the plugin.
+
+#### Scenario: EnableOnly with unknown analyzer name
+- **WHEN** `EnableOnly` contains a name that is not in the known analyzer list
+- **THEN** the harness fails the test with a clear error identifying the unknown analyzer name
 
 ### Requirement: Plugin E2E results are actionable
 The harness SHALL store the most recent lint or fix result on `ruletest.Suite` and expose assertion helpers that report stable, human-readable failures. It SHALL normalize temporary-path details so tests can assert on stable diagnostics, failure fragments, and fixed output.

@@ -25,7 +25,9 @@ linters:
             plugin:
               imports: ["pkg/*"]
             pkg/*:
-              imports: ["internal/*"]
+              imports: ["internal/*", "pkg/gounslop"]
+            internal/*:
+              imports: ["pkg/gounslop"]
 
 linters-settings:
   dupl:

@@ -7,6 +7,7 @@ import (
 
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/skhoroshavin/gounslop/pkg/boundarycontrol"
+	"github.com/skhoroshavin/gounslop/pkg/gounslop"
 	"github.com/skhoroshavin/gounslop/pkg/nospecialunicode"
 	"github.com/skhoroshavin/gounslop/pkg/nounicodeescape"
 	"github.com/skhoroshavin/gounslop/pkg/readfriendlyorder"
@@ -26,7 +27,7 @@ func init() {
 }
 
 func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
-	s, err := register.DecodeSettings[gounslopSettings](conf)
+	s, err := register.DecodeSettings[gounslop.Config](conf)
 	if err != nil {
 		return nil, fmt.Errorf("gounslop: invalid settings: %w", err)
 	}
@@ -38,7 +39,7 @@ func newGounslopPlugin(conf any) (register.LinterPlugin, error) {
 	}
 
 	if !slices.Contains(s.Disable, "boundarycontrol") && s.Architecture != nil {
-		cfg, err := s.toConfig()
+		cfg, err := toConfig(s)
 		if err != nil {
 			return nil, err
 		}
@@ -88,19 +89,7 @@ func (p *gounslopPlugin) GetLoadMode() string {
 	return register.LoadModeTypesInfo
 }
 
-type gounslopSettings struct {
-	Disable      []string                                 `json:"disable"`
-	Architecture map[string]boundarycontrolPolicySettings `json:"architecture"`
-}
-
-type boundarycontrolPolicySettings struct {
-	Imports []string `json:"imports"`
-	Exports []string `json:"exports"`
-	Shared  bool     `json:"shared"`
-	Mode    *string  `json:"mode"`
-}
-
-func (s gounslopSettings) toConfig() (boundarycontrol.Config, error) {
+func toConfig(s gounslop.Config) (boundarycontrol.Config, error) {
 	cfg := boundarycontrol.Config{
 		Architecture: make(map[string]boundarycontrol.Policy, len(s.Architecture)),
 	}

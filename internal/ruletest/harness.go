@@ -26,7 +26,7 @@ type Suite struct {
 	WriteRootGoMod bool
 
 	files          map[string]string
-	settings       map[string]any
+	settings       GounslopSettings
 	workspace      string
 	lastResult     *Result
 	lastTargetPath string
@@ -45,7 +45,7 @@ type Result struct {
 func (s *Suite) SetupTest() {
 	s.EnableOnly = nil
 	s.files = make(map[string]string)
-	s.settings = nil
+	s.settings = GounslopSettings{}
 	s.workspace = ""
 	s.lastResult = nil
 	s.lastTargetPath = ""
@@ -53,18 +53,10 @@ func (s *Suite) SetupTest() {
 	s.WriteRootGoMod = true
 }
 
-func (s *Suite) GivenConfig(settings map[string]any) {
+func (s *Suite) GivenConfig(settings GounslopSettings) {
 	s.T().Helper()
 
-	if settings == nil {
-		s.settings = nil
-		return
-	}
-
-	s.settings = make(map[string]any, len(settings))
-	for key, value := range settings {
-		s.settings[key] = value
-	}
+	s.settings = settings
 }
 
 func (s *Suite) LintCode(lines ...string) {
@@ -177,7 +169,7 @@ func (s *Suite) run(path string, fix bool) {
 		GoVersion:      s.GoVersion,
 		EnableOnly:     s.EnableOnly,
 		Files:          copyStringMap(s.files),
-		Settings:       copyAnyMap(s.settings),
+		Settings:       s.settings,
 		WriteRootGoMod: s.WriteRootGoMod,
 	}
 
@@ -387,8 +379,8 @@ func renderConfig(scenario scenarioInput) string {
 	const linterName = "gounslop"
 
 	type customLinter struct {
-		Type     string         `yaml:"type"`
-		Settings map[string]any `yaml:"settings,omitempty"`
+		Type     string           `yaml:"type"`
+		Settings GounslopSettings `yaml:"settings,omitempty"`
 	}
 
 	type lintersSettings struct {
@@ -429,20 +421,20 @@ func renderConfig(scenario scenarioInput) string {
 	return string(out)
 }
 
-func mergeSettings(enableOnly []string, givenConfig map[string]any) map[string]any {
+func mergeSettings(enableOnly []string, givenConfig GounslopSettings) GounslopSettings {
 	disable := disableComplement(enableOnly)
 
-	if len(disable) == 0 && len(givenConfig) == 0 {
-		return nil
+	if len(disable) == 0 && givenConfig.Disable == nil && givenConfig.Architecture == nil {
+		return GounslopSettings{}
 	}
 
-	merged := make(map[string]any)
+	merged := GounslopSettings{
+		Architecture: givenConfig.Architecture,
+	}
 	if len(disable) > 0 {
-		merged["disable"] = disable
-	}
-
-	for key, value := range givenConfig {
-		merged[key] = value
+		merged.Disable = disable
+	} else {
+		merged.Disable = givenConfig.Disable
 	}
 
 	return merged
@@ -531,7 +523,7 @@ type scenarioInput struct {
 	GoVersion      string
 	EnableOnly     []string
 	Files          map[string]string
-	Settings       map[string]any
+	Settings       GounslopSettings
 	WriteRootGoMod bool
 }
 
@@ -686,18 +678,6 @@ func copyStringMap(src map[string]string) map[string]string {
 	}
 
 	dst := make(map[string]string, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
-	return dst
-}
-
-func copyAnyMap(src map[string]any) map[string]any {
-	if len(src) == 0 {
-		return nil
-	}
-
-	dst := make(map[string]any, len(src))
 	for key, value := range src {
 		dst[key] = value
 	}

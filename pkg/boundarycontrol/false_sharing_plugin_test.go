@@ -1,11 +1,15 @@
 package boundarycontrol_test
 
+import (
+	"github.com/skhoroshavin/gounslop/pkg/gounslop"
+)
+
 func (s *BoundarycontrolE2ESuite) TestRemovedModeSettingFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
-				"mode":   "dir",
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+				Mode:   gounslop.StrPtr("dir"),
 			},
 		},
 	})
@@ -18,45 +22,11 @@ func (s *BoundarycontrolE2ESuite) TestRemovedModeSettingFailsClearly() {
 	s.ShouldFailWith("boundarycontrol", "architecture[\"shared\"].mode is unsupported")
 }
 
-func (s *BoundarycontrolE2ESuite) TestSharedFlagWrongTypeFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": "yes",
-			},
-		},
-	})
-	s.GivenFile("feature/consumer.go",
-		"package feature",
-		"",
-		"func Use() {}",
-	)
-	s.LintFile("feature/consumer.go")
-	s.ShouldFailWith("gounslop", "invalid settings", "shared")
-}
-
-func (s *BoundarycontrolE2ESuite) TestExportsWrongTypeFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"pkg/api": map[string]any{
-				"exports": "^New[A-Z].*$",
-			},
-		},
-	})
-	s.GivenFile("pkg/api/api.go",
-		"package api",
-		"",
-		"func NewClient() {}",
-	)
-	s.LintFile("pkg/api/api.go")
-	s.ShouldFailWith("gounslop", "invalid settings", "exports")
-}
-
 func (s *BoundarycontrolE2ESuite) TestInvalidExportRegexFailsClearly() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"pkg/api": map[string]any{
-				"exports": []string{"("},
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"pkg/api": {
+				Exports: []string{"("},
 			},
 		},
 	})
@@ -70,10 +40,10 @@ func (s *BoundarycontrolE2ESuite) TestInvalidExportRegexFailsClearly() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestExportContractsAllowMatchingTopLevelDeclarations() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"pkg/api": map[string]any{
-				"exports": []string{"^New[A-Z].*$", "^Client$"},
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"pkg/api": {
+				Exports: []string{"^New[A-Z].*$", "^Client$"},
 			},
 		},
 	})
@@ -99,10 +69,10 @@ func (s *BoundarycontrolE2ESuite) TestExportContractsAllowMatchingTopLevelDeclar
 }
 
 func (s *BoundarycontrolE2ESuite) TestExportContractsReportViolatingTopLevelDeclaration() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"pkg/api": map[string]any{
-				"exports": []string{"^New[A-Z].*$"},
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"pkg/api": {
+				Exports: []string{"^New[A-Z].*$"},
 			},
 		},
 	})
@@ -116,10 +86,10 @@ func (s *BoundarycontrolE2ESuite) TestExportContractsReportViolatingTopLevelDecl
 }
 
 func (s *BoundarycontrolE2ESuite) TestExportContractsUseFullNameMatching() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"pkg/api": map[string]any{
-				"exports": []string{"Error"},
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"pkg/api": {
+				Exports: []string{"Error"},
 			},
 		},
 	})
@@ -133,13 +103,13 @@ func (s *BoundarycontrolE2ESuite) TestExportContractsUseFullNameMatching() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared/lib": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared/lib": {
+				Shared: true,
 			},
-			"feature/api": map[string]any{
-				"imports": []string{"shared/lib/http"},
+			"feature/api": {
+				Imports: []string{"shared/lib/http"},
 			},
 		},
 	})
@@ -160,13 +130,13 @@ func (s *BoundarycontrolE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() 
 }
 
 func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubtreeAsShared() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared/*": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared/*": {
+				Shared: true,
 			},
-			"feature/api": map[string]any{
-				"imports": []string{"shared/contracts/http"},
+			"feature/api": {
+				Imports: []string{"shared/contracts/http"},
 			},
 		},
 	})
@@ -187,11 +157,11 @@ func (s *BoundarycontrolE2ESuite) TestWildcardSharedSelectorMarksDirectChildSubt
 }
 
 func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclaration() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared/lib": map[string]any{},
-			"feature/api": map[string]any{
-				"imports": []string{"shared/lib/http"},
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared/lib": {},
+			"feature/api": {
+				Imports: []string{"shared/lib/http"},
 			},
 		},
 	})
@@ -212,13 +182,13 @@ func (s *BoundarycontrolE2ESuite) TestSelectorWithoutSharedFlagIsNotSharedDeclar
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -244,16 +214,16 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithSingleConsumerFails() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
-			"featureb": map[string]any{
-				"imports": []string{"shared"},
+			"featureb": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -281,13 +251,13 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithMultipleConsumersPasses()
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsumerCount() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -315,13 +285,13 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageTestFilesDoNotIncreaseConsume
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{},
+			"featurea": {
+				Imports: []string{},
 			},
 		},
 	})
@@ -340,13 +310,13 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoConsumersFails() {
 }
 
 func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -374,16 +344,16 @@ func (s *BoundarycontrolE2ESuite) TestTwoFilesInSamePackageCountAsOneConsumer() 
 }
 
 func (s *BoundarycontrolE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFailSeparately() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
-			"featureb": map[string]any{
-				"imports": []string{"shared"},
+			"featureb": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -417,13 +387,13 @@ func (s *BoundarycontrolE2ESuite) TestDifferentSymbolsUsedByDifferentConsumersFa
 }
 
 func (s *BoundarycontrolE2ESuite) TestInternalSharedPackageReferenceCountsAsConsumer() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -445,13 +415,13 @@ func (s *BoundarycontrolE2ESuite) TestInternalSharedPackageReferenceCountsAsCons
 }
 
 func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoExportedSymbolsProducesNoDiagnostics() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
@@ -470,13 +440,13 @@ func (s *BoundarycontrolE2ESuite) TestSharedPackageWithNoExportedSymbolsProduces
 }
 
 func (s *BoundarycontrolE2ESuite) TestExportedSymbolFormsUsingTypeInfo() {
-	s.GivenConfig(map[string]any{
-		"architecture": map[string]any{
-			"shared": map[string]any{
-				"shared": true,
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
 			},
-			"featurea": map[string]any{
-				"imports": []string{"shared"},
+			"featurea": {
+				Imports: []string{"shared"},
 			},
 		},
 	})
