@@ -274,7 +274,7 @@ func readFixedFiles(t testing.TB, workspace string, files map[string]string) map
 
 	fixed := make(map[string]string)
 	for path := range files {
-		if path == "go.mod" || path == ".golangci.yml" {
+		if path == "go.mod" || path == ".golangci.yml" || path == "go.work" {
 			continue
 		}
 
@@ -315,25 +315,53 @@ func acquireCustomGCLLock(t testing.TB) func() {
 
 func writeWorkspace(t testing.TB, workspace string, scenario scenarioInput) {
 	t.Helper()
+	files := buildWorkspaceFiles(t, scenario)
+	writeWorkspaceFiles(t, workspace, files)
+}
+
+func buildWorkspaceFiles(t testing.TB, scenario scenarioInput) map[string]string {
+	t.Helper()
 
 	if len(scenario.Files) == 0 {
 		t.Fatal("at least one file is required")
 	}
 
 	files := copyStringMap(scenario.Files)
-	if scenario.WriteRootGoMod {
-		if _, ok := files["go.mod"]; !ok {
-			files["go.mod"] = renderGoMod(scenario)
-		}
+	addWorkspaceGoMod(files, scenario)
+	addWorkspaceGoWork(files, scenario)
+	addWorkspaceConfig(files, scenario)
+	return files
+}
+
+func addWorkspaceGoMod(files map[string]string, scenario scenarioInput) {
+	if !scenario.WriteRootGoMod {
+		return
 	}
-	if shouldWriteGoWork(files) {
-		if _, ok := files["go.work"]; !ok {
-			files["go.work"] = renderGoWork(scenario, files)
-		}
+	if _, ok := files["go.mod"]; ok {
+		return
 	}
-	if _, ok := files[".golangci.yml"]; !ok {
-		files[".golangci.yml"] = renderConfig(scenario)
+	files["go.mod"] = renderGoMod(scenario)
+}
+
+func addWorkspaceGoWork(files map[string]string, scenario scenarioInput) {
+	if !shouldWriteGoWork(files) {
+		return
 	}
+	if _, ok := files["go.work"]; ok {
+		return
+	}
+	files["go.work"] = renderGoWork(scenario, files)
+}
+
+func addWorkspaceConfig(files map[string]string, scenario scenarioInput) {
+	if _, ok := files[".golangci.yml"]; ok {
+		return
+	}
+	files[".golangci.yml"] = renderConfig(scenario)
+}
+
+func writeWorkspaceFiles(t testing.TB, workspace string, files map[string]string) {
+	t.Helper()
 
 	for path, content := range files {
 		fullPath := filepath.Join(workspace, path)
@@ -487,13 +515,7 @@ func moduleDirs(files map[string]string) []string {
 		return nil
 	}
 
-	dirs := make([]string, 0, len(dirSet))
-	for dir := range dirSet {
-		dirs = append(dirs, dir)
-	}
-	slices.Sort(dirs)
-
-	return dirs
+	return sortedStringKeys(dirSet)
 }
 
 func moduleDirsInWorkspace(workspace string) ([]string, error) {
@@ -518,13 +540,16 @@ func moduleDirsInWorkspace(workspace string) ([]string, error) {
 		return nil, err
 	}
 
-	dirs := make([]string, 0, len(dirSet))
-	for dir := range dirSet {
-		dirs = append(dirs, dir)
-	}
-	slices.Sort(dirs)
+	return sortedStringKeys(dirSet), nil
+}
 
-	return dirs, nil
+func sortedStringKeys(m map[string]struct{}) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func normalizeOutput(output string, workspace string) string {

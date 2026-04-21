@@ -13,6 +13,7 @@ linters:
     - unused
     - gocritic
     - dupl
+    - revive
   settings:
     custom:
       gounslop:
@@ -22,20 +23,27 @@ linters:
             - nospecialunicode
             - nounicodeescape
           architecture:
+            pkg/rule/*:
+              imports: ["pkg/core/*"]
+              exports: ["NewAnalyzer"]
+            pkg/gounslop:
+              imports: ["pkg/core/*", "pkg/rule/*"]
             plugin:
               imports: ["pkg/gounslop"]
-            pkg/analyzer:
-              shared: true
-            pkg/gounslop:
-              imports: ["pkg/*"]
-            pkg/*:
-              imports: ["pkg/analyzer"]
             tests:
               imports: ["pkg/gounslop"]
-
-linters-settings:
-  dupl:
-    threshold: 100
+    dupl:
+      threshold: 100
+    revive:
+      rules:
+        - name: cyclomatic
+          arguments: [8]
+        - name: argument-limit
+          arguments: [4]
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
 
 formatters:
   enable:

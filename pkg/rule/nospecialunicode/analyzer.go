@@ -9,29 +9,21 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
+
+	"github.com/skhoroshavin/gounslop/pkg/core/astutil"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name:     "nospecialunicode",
-	Doc:      "disallow special unicode punctuation and whitespace characters in strings",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
+func NewAnalyzer() *analysis.Analyzer {
+	return &analysis.Analyzer{
+		Name:     "nospecialunicode",
+		Doc:      "disallow special unicode punctuation and whitespace characters in strings",
+		Requires: []*analysis.Analyzer{inspect.Analyzer},
+		Run:      run,
+	}
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	nodeFilter := []ast.Node{
-		(*ast.BasicLit)(nil),
-	}
-
-	insp.Preorder(nodeFilter, func(n ast.Node) {
-		lit := n.(*ast.BasicLit)
-		if lit.Kind != token.STRING && lit.Kind != token.CHAR {
-			return
-		}
-
+	astutil.WalkStringLiterals(pass, func(lit *ast.BasicLit) {
 		value, ok := unquoteLiteral(lit)
 		if !ok {
 			return
@@ -46,7 +38,7 @@ func run(pass *analysis.Pass) (any, error) {
 			diag := analysis.Diagnostic{
 				Pos:     lit.Pos(),
 				End:     lit.End(),
-				Message: FormatDiagnostic(bc.name, bc.char),
+				Message: formatDiagnostic(bc.name, bc.char),
 			}
 			if fixable {
 				diag.SuggestedFixes = []analysis.SuggestedFix{{
@@ -167,8 +159,6 @@ func isReplacementSafe(replacement string, delimiter byte) bool {
 	return true
 }
 
-// FormatDiagnostic returns the expected diagnostic message for a banned character.
-// Exported for use in tests.
-func FormatDiagnostic(name string, char rune) string {
+func formatDiagnostic(name string, char rune) string {
 	return fmt.Sprintf("String contains %s (U+%04X). Use the ASCII equivalent.", name, char)
 }

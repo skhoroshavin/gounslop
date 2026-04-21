@@ -11,9 +11,4 @@ type PolicyConfig struct {
 	Imports []string `json:"imports" yaml:"imports"`
 	Exports []string `json:"exports" yaml:"exports"`
 	Shared  bool     `json:"shared" yaml:"shared"`
-	Mode    *string  `json:"mode" yaml:"mode"`
-}
-
-func StrPtr(s string) *string {
-	return &s
 }

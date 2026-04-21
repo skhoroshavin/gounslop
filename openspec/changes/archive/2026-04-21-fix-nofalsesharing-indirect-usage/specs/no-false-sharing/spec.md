@@ -1,8 +1,4 @@
-## Purpose
-
-Define migrated false-sharing rules for shared package thresholds and consumer counting under boundarycontrol architecture selectors.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Shared packages must have at least two consuming packages
 When `boundarycontrol` configuration declares a selector policy with `shared: true`, the system SHALL treat every package owned by that selector as a shared package and SHALL evaluate each exported symbol declared by that shared package independently. The system SHALL report a diagnostic for an exported symbol when that symbol is used by fewer than two consuming entities. A consuming entity SHALL be either a direct non-test importing package path that references the exported symbol, another declaration inside the same shared package that references that exported symbol, or a non-test importing package path that references an exported symbol in another package whose public API includes that shared type. A shared package with no exported symbols SHALL not produce a false-sharing diagnostic.
@@ -38,29 +34,3 @@ When `boundarycontrol` configuration declares a selector policy with `shared: tr
 #### Scenario: Indirect usage reaches two consumers
 - **WHEN** a shared package exports a type that is used in the public API of an exported symbol in another package, and that exported symbol is consumed by one non-test importing package path while the shared type itself is consumed by one other non-test importing package path
 - **THEN** the analyzer does not report a false-sharing violation for that shared type
-
-### Requirement: Consumers are counted by importing package path from non-test code
-For migrated no-false-sharing evaluation, the system SHALL count consumers per exported symbol by importing package path rather than by individual files or by package import alone. `_test.go` files SHALL not increase the consumer count for an exported symbol, and multiple references to the same exported symbol from the same importing package path SHALL count as a single external consumer entity.
-
-#### Scenario: Two files in the same package count as one consumer
-- **WHEN** multiple non-test files in the same importing package reference the same exported symbol from a shared package
-- **THEN** the analyzer counts that importing package path as a single external consumer entity for that exported symbol
-
-#### Scenario: Different importing packages using different exports do not satisfy symbol-level sharing
-- **WHEN** two different importing package paths reference the same shared package but each package path references a different exported symbol from that shared package
-- **THEN** the analyzer reports a false-sharing violation for each exported symbol that is still used by fewer than two consuming entities
-
-#### Scenario: Test files do not increase the consumer count
-- **WHEN** an exported symbol from a shared package is referenced by one non-test file and one `_test.go` file from the same importing package path
-- **THEN** the analyzer still treats that importing package path as a single external consumer entity for that exported symbol
-
-### Requirement: Invalid migrated false-sharing settings fail clearly
-The system SHALL return an actionable configuration error when `boundarycontrol` architecture settings for migrated false-sharing cannot be decoded into the expected configuration shape or include removed consumer-grouping options.
-
-#### Scenario: Shared flag has the wrong type
-- **WHEN** plugin configuration provides `shared` as a non-boolean value under an `architecture` selector policy
-- **THEN** the plugin setup fails with an error that identifies the `boundarycontrol` architecture settings problem
-
-#### Scenario: Removed mode option is supplied
-- **WHEN** plugin configuration provides `mode` under an `architecture` selector policy for migrated false-sharing settings
-- **THEN** the plugin setup fails with an error that identifies `mode` as unsupported for migrated false-sharing configuration

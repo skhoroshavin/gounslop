@@ -3,193 +3,110 @@ package gounslop
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
-	"github.com/skhoroshavin/gounslop/pkg/analyzer"
+	"github.com/skhoroshavin/gounslop/pkg/core/boundary"
 )
 
-func compileConfig(cfg Config) (analyzer.CompiledConfig, error) {
+func compileConfig(cfg Config) (boundary.Rules, error) {
 	if cfg.Architecture == nil {
-		return analyzer.CompiledConfig{}, nil
+		return boundary.Rules{}, nil
 	}
 
-	for selector, policy := range cfg.Architecture {
-		if policy.Mode != nil {
-			return analyzer.CompiledConfig{}, fmt.Errorf(
-				"gounslop: architecture[%q].mode is unsupported; migrated false-sharing counts consumers by importing package path only",
-				selector,
-			)
-		}
-	}
-
-	arch := normalizeConfig(cfg.Architecture)
-
-	selectors := make([]string, 0, len(arch))
-	for k := range arch {
-		selectors = append(selectors, k)
+	selectors := make([]string, 0, len(cfg.Architecture))
+	for selector := range cfg.Architecture {
+		selectors = append(selectors, selector)
 	}
 	sort.Strings(selectors)
 
-	policies := make([]analyzer.CompiledPolicy, 0, len(selectors))
-	hasSharedSelectors := false
+	var rules boundary.Rules
 	var cacheKeyParts []string
-	for _, selector := range selectors {
-		parsedKey, err := parseKeySelector(selector)
+
+	for _, rawSelector := range selectors {
+		selector := strings.TrimSpace(rawSelector)
+		policy := cfg.Architecture[rawSelector]
+
+		parsedKey, parts, importPol, exportPol, err := compileSelector(selector, policy)
 		if err != nil {
-			return analyzer.CompiledConfig{}, fmt.Errorf("architecture[%q]: %w", selector, err)
+			return boundary.Rules{}, err
 		}
 
-		policy := arch[selector]
-		imports := policy.Imports
-		exports := policy.Exports
-		parsedImports := make([]analyzer.ParsedSelector, 0, len(imports))
-		for i, importSelector := range imports {
-			parsedImport, err := parseImportSelector(importSelector)
-			if err != nil {
-				return analyzer.CompiledConfig{}, fmt.Errorf("architecture[%q].imports[%d]: %w", selector, i, err)
-			}
-
-			parsedImports = append(parsedImports, parsedImport)
+		if importPol != nil {
+			rules.Import = append(rules.Import, *importPol)
 		}
-
-		compiledExports := make([]*regexp.Regexp, 0, len(exports))
-		for i, exportPattern := range exports {
-			compiledPattern, err := regexp.Compile("^(?:" + exportPattern + ")$")
-			if err != nil {
-				return analyzer.CompiledConfig{}, fmt.Errorf("architecture[%q].exports[%d]: invalid regex: %w", selector, i, err)
-			}
-
-			compiledExports = append(compiledExports, compiledPattern)
+		if exportPol != nil {
+			rules.Export = append(rules.Export, *exportPol)
 		}
-
 		if policy.Shared {
-			hasSharedSelectors = true
+			rules.Shared.Selectors = append(rules.Shared.Selectors, parsedKey)
+			rules.Shared.HasSharedSelectors = true
 		}
-
-		cacheKeyParts = append(cacheKeyParts, selector)
-		if policy.Shared {
-			cacheKeyParts = append(cacheKeyParts, "shared")
-		}
-		cacheKeyParts = append(cacheKeyParts, imports...)
-		for _, exportPattern := range exports {
-			cacheKeyParts = append(cacheKeyParts, "export", exportPattern)
-		}
-
-		policies = append(policies, analyzer.CompiledPolicy{
-			Selector: parsedKey,
-			Imports:  parsedImports,
-			Exports:  compiledExports,
-			Shared:   policy.Shared,
-		})
+		cacheKeyParts = append(cacheKeyParts, parts...)
 	}
 
-	return analyzer.CompiledConfig{
-		Policies:           policies,
-		HasSharedSelectors: hasSharedSelectors,
-		CacheKey:           strings.Join(cacheKeyParts, "\x00"),
-	}, nil
+	rules.Shared.CacheKey = strings.Join(cacheKeyParts, "\x00")
+	return rules, nil
 }
 
-func normalizeConfig(arch Architecture) Architecture {
-	if arch == nil {
-		return Architecture{}
+func compileSelector(selector string, policy PolicyConfig) (boundary.Selector, []string, *boundary.ImportPolicy, *boundary.ExportPolicy, error) {
+	parsedKey, err := boundary.ParseSelector(selector, false, "key")
+	if err != nil {
+		return boundary.Selector{}, nil, nil, nil, fmt.Errorf("architecture[%q]: %w", selector, err)
 	}
 
-	normalized := make(Architecture, len(arch))
-	for selector, policy := range arch {
-		normalizedSelector := strings.TrimSpace(selector)
-		imports := slices.Clone(policy.Imports)
-
-		for i := range imports {
-			imports[i] = strings.TrimSpace(imports[i])
-		}
-
-		exports := slices.Clone(policy.Exports)
-		for i := range exports {
-			exports[i] = strings.TrimSpace(exports[i])
-		}
-
-		normalized[normalizedSelector] = PolicyConfig{
-			Imports: imports,
-			Exports: exports,
-			Shared:  policy.Shared,
-		}
+	parts := buildCacheKeyParts(selector, policy)
+	importPol, err := buildImportPolicy(selector, policy, parsedKey)
+	if err != nil {
+		return boundary.Selector{}, nil, nil, nil, err
 	}
-
-	return normalized
+	exportPol, err := buildExportPolicy(selector, policy, parsedKey)
+	if err != nil {
+		return boundary.Selector{}, nil, nil, nil, err
+	}
+	return parsedKey, parts, importPol, exportPol, nil
 }
 
-func parseKeySelector(raw string) (analyzer.ParsedSelector, error) {
-	return parseSelector(raw, "key", false)
-}
-
-func parseImportSelector(raw string) (analyzer.ParsedSelector, error) {
-	return parseSelector(raw, "import", true)
-}
-
-func parseSelector(raw, selectorType string, allowSelfOrChild bool) (analyzer.ParsedSelector, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "." {
-		return analyzer.ParsedSelector{Kind: analyzer.SelectorKindRoot}, nil
+func buildCacheKeyParts(selector string, policy PolicyConfig) []string {
+	parts := []string{selector}
+	if policy.Shared {
+		parts = append(parts, "shared")
 	}
+	parts = append(parts, policy.Imports...)
+	for _, ep := range policy.Exports {
+		parts = append(parts, "export", ep)
+	}
+	return parts
+}
 
-	if strings.HasSuffix(raw, "/*") {
-		base := strings.TrimSuffix(raw, "/*")
-		if !isValidRelPath(base) {
-			return analyzer.ParsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
+func buildImportPolicy(selector string, policy PolicyConfig, parsedKey boundary.Selector) (*boundary.ImportPolicy, error) {
+	if len(policy.Imports) == 0 {
+		return nil, nil
+	}
+	parsedImports := make([]boundary.Selector, 0, len(policy.Imports))
+	for i, importSelector := range policy.Imports {
+		trimmed := strings.TrimSpace(importSelector)
+		parsedImport, err := boundary.ParseSelector(trimmed, true, "import")
+		if err != nil {
+			return nil, fmt.Errorf("architecture[%q].imports[%d]: %w", selector, i, err)
 		}
-
-		return analyzer.ParsedSelector{
-			Base:  base,
-			Depth: segmentCount(base),
-			Kind:  analyzer.SelectorKindChildWildcard,
-		}, nil
+		parsedImports = append(parsedImports, parsedImport)
 	}
-
-	if allowSelfOrChild && strings.HasSuffix(raw, "/+") {
-		base := strings.TrimSuffix(raw, "/+")
-		if !isValidRelPath(base) {
-			return analyzer.ParsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
-		}
-
-		return analyzer.ParsedSelector{
-			Base:  base,
-			Depth: segmentCount(base),
-			Kind:  analyzer.SelectorKindSelfOrChild,
-		}, nil
-	}
-
-	if !isValidRelPath(raw) {
-		return analyzer.ParsedSelector{}, fmt.Errorf("unsupported %s selector %q", selectorType, raw)
-	}
-
-	return analyzer.ParsedSelector{
-		Base:  raw,
-		Depth: segmentCount(raw),
-		Kind:  analyzer.SelectorKindExact,
-	}, nil
+	return &boundary.ImportPolicy{Selector: parsedKey, Imports: parsedImports}, nil
 }
 
-func isValidRelPath(path string) bool {
-	if path == "" || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") || strings.Contains(path, "//") {
-		return false
+func buildExportPolicy(selector string, policy PolicyConfig, parsedKey boundary.Selector) (*boundary.ExportPolicy, error) {
+	if len(policy.Exports) == 0 {
+		return nil, nil
 	}
-
-	for _, segment := range strings.Split(path, "/") {
-		if segment == "" || segment == "." || segment == ".." || strings.ContainsAny(segment, "*+") {
-			return false
+	compiledExports := make([]*regexp.Regexp, 0, len(policy.Exports))
+	for i, exportPattern := range policy.Exports {
+		trimmed := strings.TrimSpace(exportPattern)
+		compiledPattern, err := regexp.Compile("^(?:" + trimmed + ")$")
+		if err != nil {
+			return nil, fmt.Errorf("architecture[%q].exports[%d]: invalid regex: %w", selector, i, err)
 		}
+		compiledExports = append(compiledExports, compiledPattern)
 	}
-
-	return true
-}
-
-func segmentCount(path string) int {
-	if path == "" {
-		return 0
-	}
-
-	return strings.Count(path, "/") + 1
+	return &boundary.ExportPolicy{Selector: parsedKey, Exports: compiledExports}, nil
 }

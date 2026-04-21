@@ -1,107 +1,47 @@
 package gounslop
 
 import (
-	"fmt"
 	"slices"
 
-	"github.com/skhoroshavin/gounslop/pkg/analyzer"
-	"github.com/skhoroshavin/gounslop/pkg/exportcontrol"
-	"github.com/skhoroshavin/gounslop/pkg/importcontrol"
-	"github.com/skhoroshavin/gounslop/pkg/nofalsesharing"
-	"github.com/skhoroshavin/gounslop/pkg/nospecialunicode"
-	"github.com/skhoroshavin/gounslop/pkg/nounicodeescape"
-	"github.com/skhoroshavin/gounslop/pkg/readfriendlyorder"
+	"github.com/skhoroshavin/gounslop/pkg/core/module"
+	"github.com/skhoroshavin/gounslop/pkg/rule/exportcontrol"
+	"github.com/skhoroshavin/gounslop/pkg/rule/importcontrol"
+	"github.com/skhoroshavin/gounslop/pkg/rule/nofalsesharing"
+	"github.com/skhoroshavin/gounslop/pkg/rule/nospecialunicode"
+	"github.com/skhoroshavin/gounslop/pkg/rule/nounicodeescape"
+	"github.com/skhoroshavin/gounslop/pkg/rule/readfriendlyorder"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
 )
 
 // BuildAnalyzers creates all gounslop analyzers with the given configuration.
 // Caches are injected from the root package rather than using package-level singletons.
 func BuildAnalyzers(cfg Config) ([]*analysis.Analyzer, error) {
-	if err := validateDisable(cfg.Disable); err != nil {
-		return nil, err
-	}
-
 	compiledCfg, err := compileConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	modCache := newModuleContextCache()
-	fsCache := nofalsesharing.NewCache()
+	modCache := &module.Cache{}
 
 	all := []*analysis.Analyzer{
-		{
-			Name:     "importcontrol",
-			Doc:      importcontrolDoc,
-			Requires: []*analysis.Analyzer{inspect.Analyzer},
-			Run: func(pass *analysis.Pass) (any, error) {
-				return importcontrol.Run(pass, modCache, compiledCfg)
-			},
-		},
-		{
-			Name:     "exportcontrol",
-			Doc:      exportcontrolDoc,
-			Requires: []*analysis.Analyzer{inspect.Analyzer},
-			Run: func(pass *analysis.Pass) (any, error) {
-				return exportcontrol.Run(pass, modCache, compiledCfg)
-			},
-		},
-		{
-			Name:     "nofalsesharing",
-			Doc:      nofalsesharingDoc,
-			Requires: []*analysis.Analyzer{inspect.Analyzer},
-			Run: func(pass *analysis.Pass) (any, error) {
-				return nofalsesharing.Run(pass, modCache, fsCache, compiledCfg)
-			},
-		},
-		readfriendlyorder.Analyzer,
-		nospecialunicode.Analyzer,
-		nounicodeescape.Analyzer,
+		importcontrol.NewAnalyzer(modCache, compiledCfg.Import),
+		exportcontrol.NewAnalyzer(modCache, compiledCfg.Export),
+		nofalsesharing.NewAnalyzer(modCache, compiledCfg.Shared),
+		readfriendlyorder.NewAnalyzer(),
+		nospecialunicode.NewAnalyzer(),
+		nounicodeescape.NewAnalyzer(),
 	}
 
-	return filterByDisable(all, cfg.Disable), nil
-}
-
-func validateDisable(disable []string) error {
-	for _, name := range disable {
-		if !slices.Contains(analyzerNames, name) {
-			return fmt.Errorf("gounslop: unknown analyzer %q in disable list", name)
-		}
-	}
-	return nil
-}
-
-var analyzerNames = []string{
-	"importcontrol",
-	"exportcontrol",
-	"nofalsesharing",
-	"readfriendlyorder",
-	"nospecialunicode",
-	"nounicodeescape",
-}
-
-func filterByDisable(analyzers []*analysis.Analyzer, disable []string) []*analysis.Analyzer {
-	if len(disable) == 0 {
-		return analyzers
+	if len(cfg.Disable) == 0 {
+		return all, nil
 	}
 
-	filtered := make([]*analysis.Analyzer, 0, len(analyzers))
-	for _, a := range analyzers {
-		if slices.Contains(disable, a.Name) {
+	filtered := make([]*analysis.Analyzer, 0, len(all))
+	for _, a := range all {
+		if slices.Contains(cfg.Disable, a.Name) {
 			continue
 		}
 		filtered = append(filtered, a)
 	}
-	return filtered
+	return filtered, nil
 }
-
-func newModuleContextCache() *analyzer.ModuleContextCache {
-	return &analyzer.ModuleContextCache{}
-}
-
-const (
-	importcontrolDoc  = "enforce package import boundaries within the discovered Go module"
-	exportcontrolDoc  = "enforce export contract patterns for top-level declarations"
-	nofalsesharingDoc = "detect exported symbols in shared packages that are not used by 2+ entities"
-)

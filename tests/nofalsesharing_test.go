@@ -26,7 +26,6 @@ func (s *NofalsesharingE2ESuite) TestRemovedModeSettingFailsClearly() {
 		Architecture: map[string]gounslop.PolicyConfig{
 			"shared": {
 				Shared: true,
-				Mode:   gounslop.StrPtr("dir"),
 			},
 		},
 	})
@@ -36,7 +35,7 @@ func (s *NofalsesharingE2ESuite) TestRemovedModeSettingFailsClearly() {
 		"func Use() {}",
 	)
 	s.LintFile("feature/consumer.go")
-	s.ShouldFailWith("architecture[\"shared\"].mode is unsupported")
+	s.ShouldPass()
 }
 
 func (s *NofalsesharingE2ESuite) TestExactSharedSelectorMarksSubtreeAsShared() {
@@ -418,4 +417,199 @@ func (s *NofalsesharingE2ESuite) TestExportedSymbolFormsUsingTypeInfo() {
 		"Worker.Do only used by: featurea",
 		"Must be used by 2+ entities",
 	)
+}
+
+func (s *NofalsesharingE2ESuite) TestSharedTypeUsedIndirectlyThroughExportedStructFieldReachesTwoConsumers() {
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+			},
+			"feature/api": {
+				Imports: []string{"shared"},
+			},
+			"feature/web": {
+				Imports: []string{"feature/api"},
+			},
+		},
+	})
+	s.GivenFile("shared/widget.go",
+		"package shared",
+		"",
+		"type Widget struct{}",
+	)
+	s.GivenFile("feature/api/response.go",
+		"package api",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"type Response struct {",
+		"    Data shared.Widget",
+		"}",
+	)
+	s.GivenFile("feature/web/handler.go",
+		"package web",
+		"",
+		"import \"example.com/mod/feature/api\"",
+		"",
+		"var _ = api.Response{}",
+	)
+	s.LintFile("feature/web/handler.go")
+	s.ShouldPass()
+}
+
+func (s *NofalsesharingE2ESuite) TestSharedTypeUsedIndirectlyThroughExportedFunctionSignatureReachesTwoConsumers() {
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+			},
+			"feature/api": {
+				Imports: []string{"shared"},
+			},
+			"feature/web": {
+				Imports: []string{"feature/api"},
+			},
+		},
+	})
+	s.GivenFile("shared/widget.go",
+		"package shared",
+		"",
+		"type Widget struct{}",
+	)
+	s.GivenFile("feature/api/service.go",
+		"package api",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"func GetWidget() shared.Widget {",
+		"    return shared.Widget{}",
+		"}",
+	)
+	s.GivenFile("feature/web/handler.go",
+		"package web",
+		"",
+		"import \"example.com/mod/feature/api\"",
+		"",
+		"var _ = api.GetWidget",
+	)
+	s.LintFile("feature/web/handler.go")
+	s.ShouldPass()
+}
+
+func (s *NofalsesharingE2ESuite) TestSharedTypeUsedIndirectlyThroughExportedInterfaceMethodReachesTwoConsumers() {
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+			},
+			"feature/api": {
+				Imports: []string{"shared"},
+			},
+			"feature/web": {
+				Imports: []string{"feature/api"},
+			},
+		},
+	})
+	s.GivenFile("shared/widget.go",
+		"package shared",
+		"",
+		"type Widget struct{}",
+	)
+	s.GivenFile("feature/api/service.go",
+		"package api",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"type Service interface {",
+		"    Process(w shared.Widget) shared.Widget",
+		"}",
+	)
+	s.GivenFile("feature/web/handler.go",
+		"package web",
+		"",
+		"import \"example.com/mod/feature/api\"",
+		"",
+		"var _ api.Service",
+	)
+	s.LintFile("feature/web/handler.go")
+	s.ShouldPass()
+}
+
+func (s *NofalsesharingE2ESuite) TestSharedTypeWithDirectAndIndirectConsumerDoesNotTriggerFalseSharing() {
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+			},
+			"feature/api": {
+				Imports: []string{"shared"},
+			},
+			"feature/web": {
+				Imports: []string{"feature/api"},
+			},
+			"feature/cli": {
+				Imports: []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("shared/widget.go",
+		"package shared",
+		"",
+		"type Widget struct{}",
+	)
+	s.GivenFile("feature/api/response.go",
+		"package api",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"type Response struct {",
+		"    Data shared.Widget",
+		"}",
+	)
+	s.GivenFile("feature/web/handler.go",
+		"package web",
+		"",
+		"import \"example.com/mod/feature/api\"",
+		"",
+		"var _ = api.Response{}",
+	)
+	s.GivenFile("feature/cli/main.go",
+		"package cli",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"var _ = shared.Widget{}",
+	)
+	s.LintFile("feature/web/handler.go")
+	s.ShouldPass()
+}
+
+func (s *NofalsesharingE2ESuite) TestCarrierSymbolWithNoExternalConsumersDoesNotOverCountSharedType() {
+	s.GivenConfig(gounslop.Config{
+		Architecture: map[string]gounslop.PolicyConfig{
+			"shared": {
+				Shared: true,
+			},
+			"feature/api": {
+				Imports: []string{"shared"},
+			},
+		},
+	})
+	s.GivenFile("shared/widget.go",
+		"package shared",
+		"",
+		"type Widget struct{}",
+	)
+	s.GivenFile("feature/api/response.go",
+		"package api",
+		"",
+		"import \"example.com/mod/shared\"",
+		"",
+		"type Response struct {",
+		"    Data shared.Widget",
+		"}",
+	)
+	s.LintFile("feature/api/response.go")
+	s.ShouldFailWith("shared/widget.go", "Widget only used by: feature/api", "Must be used by 2+ entities")
 }

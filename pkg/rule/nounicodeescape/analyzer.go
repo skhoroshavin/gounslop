@@ -2,7 +2,6 @@ package nounicodeescape
 
 import (
 	"go/ast"
-	"go/token"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,29 +9,21 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
+
+	"github.com/skhoroshavin/gounslop/pkg/core/astutil"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name:     "nounicodeescape",
-	Doc:      "prefer literal unicode characters over escape sequences in strings",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
+func NewAnalyzer() *analysis.Analyzer {
+	return &analysis.Analyzer{
+		Name:     "nounicodeescape",
+		Doc:      "prefer literal unicode characters over escape sequences in strings",
+		Requires: []*analysis.Analyzer{inspect.Analyzer},
+		Run:      run,
+	}
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	nodeFilter := []ast.Node{
-		(*ast.BasicLit)(nil),
-	}
-
-	insp.Preorder(nodeFilter, func(n ast.Node) {
-		lit := n.(*ast.BasicLit)
-		if lit.Kind != token.STRING && lit.Kind != token.CHAR {
-			return
-		}
-
+	astutil.WalkStringLiterals(pass, func(lit *ast.BasicLit) {
 		// Only check interpreted strings (starting with ") and char literals (starting with ')
 		// Raw strings (starting with `) cannot contain escape sequences
 		if len(lit.Value) > 0 && lit.Value[0] == '`' {
@@ -100,18 +91,16 @@ func buildFixedLiteral(raw string) (string, bool) {
 }
 
 func decodeEscape(escape string) (rune, error) {
-	// Convert \uXXXX or \U00XXXXXX to the rune
-	// strconv.Unquote handles these when wrapped in quotes
-	quoted := `"` + escape + `"`
-	s, err := strconv.Unquote(quoted)
+	base := 16
+	start := 2
+	if escape[1] == 'U' {
+		start = 2
+	}
+	v, err := strconv.ParseUint(escape[start:], base, 32)
 	if err != nil {
 		return 0, err
 	}
-	r := []rune(s)
-	if len(r) != 1 {
-		return 0, strconv.ErrSyntax
-	}
-	return r[0], nil
+	return rune(v), nil
 }
 
 var unicodeEscapeRe = regexp.MustCompile(`\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8}`)

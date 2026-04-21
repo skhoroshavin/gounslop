@@ -31,10 +31,11 @@ Guidance for coding agents working in `gounslop`.
 ## Repository Layout
 
 - `plugin/module.go`: plugin entrypoint — registers the unified plugin with golangci-lint
-- `pkg/analyzer/`: shared analyzer infrastructure (module context discovery, config compilation, selector parsing, generic fixers)
-- `pkg/importcontrol/`, `pkg/exportcontrol/`, `pkg/nofalsesharing/`: boundary-control analyzers importing `pkg/analyzer`
-- `pkg/readfriendlyorder/`: code ordering rules (top-level, method, init, test ordering); imports `pkg/analyzer` for fixers
-- `pkg/nospecialunicode/` and `pkg/nounicodeescape/`: self-contained analyzers with no `pkg/analyzer` imports
+- `core/module/`: module context discovery (`go.mod` discovery, nested module scanning, import path classification)
+- `core/boundary/`: selector DSL parsing, policy matching, and compiled rule types
+- `rule/importcontrol/`, `rule/exportcontrol/`, `rule/nofalsesharing/`: boundary-control analyzers importing `core/module/` and `core/boundary/`
+- `rule/readfriendlyorder/`: code ordering rules (top-level, method, init, test ordering)
+- `rule/nospecialunicode/` and `rule/nounicodeescape/`: self-contained analyzers with no internal imports
 - `pkg/gounslop/`: root package with `Config`, `BuildAnalyzers`, and cache injection
 - `tests/`: flat directory with E2E test files for each analyzer
 - `tests/rule/`: reusable E2E harness (formerly `internal/ruletest/`)
@@ -44,11 +45,12 @@ Guidance for coding agents working in `gounslop`.
 
 ## Important Current Structure Notes
 
-- `pkg/analyzer/` contains only generic infrastructure; it does not import any other `pkg/*` package
+- `core/module/` and `core/boundary/` contain generic infrastructure; neither imports any other internal package
 - `pkg/gounslop/` wires all analyzers together and injects shared caches
 - `plugin/` imports only `pkg/gounslop`
 - `tests/` imports only `pkg/gounslop` and `tests/rule`
 - `tests/rule/` imports only `pkg/gounslop`
+- `rule/*` packages import only `core/*`
 - `nospecialunicode` and `nounicodeescape` are not enabled for self-linting because they flag their own test data
 - All E2E tests run with every analyzer enabled; there is no `EnableOnly` mechanism
 
@@ -61,7 +63,7 @@ Guidance for coding agents working in `gounslop`.
 ## Code Style: Imports
 
 - Use standard Go import grouping: stdlib, then external packages, then internal packages
-- Use the full module path for internal imports: `github.com/skhoroshavin/gounslop/pkg/...`
+- Use the full module path for internal imports: `github.com/skhoroshavin/gounslop/core/...` and `github.com/skhoroshavin/gounslop/rule/...`
 
 ## Code Style: File Order
 
@@ -102,7 +104,7 @@ Guidance for coding agents working in `gounslop`.
 ## Testing Conventions
 
 - All test coverage is provided through the E2E framework in `tests/`
-- No `_test.go` files remain in `pkg/`
+- No `_test.go` files remain in `pkg/` or `rule/`
 - E2E tests live in `tests/<analyzer>_test.go` and import `tests/rule` and `pkg/gounslop`
 - Every E2E test runs with all analyzers enabled; test data must not trigger cross-analyzer conflicts
 - The harness hardcodes the linter name as `gounslop` and never generates a `disable` list unless the test supplies one via `GivenConfig`
@@ -118,4 +120,4 @@ Guidance for coding agents working in `gounslop`.
 - Read the analyzer, nearby helpers, and its test file before changing behavior
 - Keep edits scoped and avoid opportunistic refactors
 - Run the most targeted test command first, then `make lint && make test` for full validation
-- When adding a new analyzer: create package under `pkg/`, register in `pkg/gounslop/`, add to `.golangci.yml` if appropriate for self-linting
+- When adding a new analyzer: create package under `rule/`, register in `pkg/gounslop/`, add to `.golangci.yml` if appropriate for self-linting
